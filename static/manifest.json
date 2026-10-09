@@ -1,0 +1,19 @@
+{
+  "name": "CoolAir – Kết nối bạn bè",
+  "short_name": "CoolAir",
+  "description": "Đăng bài, nhắn tin, gọi video và lưu giữ kỷ niệm cùng bạn bè.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#ffffff",
+  "theme_color": "#E85D00",
+  "lang": "vi",
+  "categories": ["social"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -1,0 +1,4 @@
+node_modules
+.env
+# build của Vite (npm run build), không commit
+public

@@ -1,0 +1,1520 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CoolAir – Kết nối bạn bè</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#E85D00">
+<meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CoolAir"><meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="icon" type="image/png" href="/icons/icon-192.png"><link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap">
+<script src="/theme-init.js"></script>
+<link rel="stylesheet" href="/src/css/app.css">
+<link rel="stylesheet" href="/neo.css?v=74i" id="neo-css">
+<link rel="stylesheet" href="/src/css/emoji.css">
+<!-- Tailwind chạy qua PostCSS của Vite (src/css/tailwind.css). Phải nằm CUỐI <head> để utility/preflight đè các CSS trên. -->
+<link rel="stylesheet" href="/src/css/tailwind.css">
+</head>
+<body>
+<div id="app" v-cloak :class="{px:authed,thm:themed,chatopen:!!chat.id,callopen:call.st!=='idle'&&call.video&&call.st!=='ringing'}">
+<div v-if="booting" class="fixed inset-0 z-[300] grid place-items-center bg-bg" role="status" aria-label="Đang tải">
+ <div class="flex flex-col items-center gap-3"><span class="grid place-items-center w-14 h-14 rounded-2xl bg-zg text-white animate-pulse motion-reduce:animate-none"><c-ic n="cloud" cls="w-9 h-9"></c-ic></span><b class="text-xl text-ink">Cool<span style="color:var(--zg)">Air</span></b><span class="text-sm text-mute">Đang tải…</span></div>
+</div>
+<div v-if="vf.show" class="fixed inset-0 z-[150] grid place-items-center bg-bg p-4 overflow-y-auto" role="dialog" aria-labelledby="vf-t">
+ <form class="card w-full max-w-sm p-6 text-center space-y-3" novalidate @submit.prevent="doVerify">
+  <div class="mx-auto grid place-items-center w-14 h-14 rounded-2xl bg-zg text-white"><c-ic n="mail" cls="w-8 h-8"></c-ic></div>
+  <h2 id="vf-t" class="text-xl font-bold">Xác thực email</h2>
+  <p class="text-sm text-mute">Mã gồm 10 chữ số đã được gửi tới <b class="text-ink break-all">{{ vf.email }}</b>. Mã có hiệu lực 15 phút.</p>
+  <input v-model="vf.code" class="ip text-center text-2xl tracking-[.25em] font-bold" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="••••••••••" aria-label="Mã xác thực" @input="vf.err='';vf.code=vf.code.replace(/\D/g,'')">
+  <p class="text-sm min-h-[1.25rem]" style="color:#d64545" role="alert">{{ vf.err }}</p>
+  <button class="btn btn-g w-full" :disabled="vf.busy">{{ vf.busy?'Đang xử lý…':'Xác thực' }}</button>
+  <div class="flex justify-between text-sm"><button type="button" class="text-zb2" :class="{'opacity-50':vf.wait>0}" :disabled="vf.wait>0||vf.busy" @click="resend">{{ vf.wait>0?'Gửi lại mã sau '+vf.wait+'s':'Gửi lại mã' }}</button><button type="button" class="text-mute" @click="closeVf">Quay lại</button></div>
+ </form>
+</div>
+<!-- 2FA: bước 2 của đăng nhập -->
+<div v-if="tfa.show" class="fixed inset-0 z-[150] grid place-items-center bg-bg p-4 overflow-y-auto" role="dialog" aria-labelledby="tfa-t">
+ <form class="card w-full max-w-sm p-6 text-center space-y-3" novalidate @submit.prevent="doTfa">
+  <div class="mx-auto grid place-items-center w-14 h-14 rounded-2xl bg-zg text-white"><c-ic n="lock" cls="w-8 h-8"></c-ic></div>
+  <h2 id="tfa-t" class="text-xl font-bold">Xác thực 2 bước</h2>
+  <p class="text-sm text-mute">Nhập mã 6 số đang hiện trong app Authenticator của bạn. Mất điện thoại? Dùng 1 mã dự phòng (8 ký tự).</p>
+  <input v-model="tfa.code" class="ip text-center text-2xl tracking-[.25em] font-bold" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="••••••" aria-label="Mã xác thực 2 bước" @input="tfa.err=''">
+  <p class="text-sm min-h-[1.25rem]" style="color:#d64545" role="alert">{{ tfa.err }}</p>
+  <button class="btn btn-g w-full" :disabled="tfa.busy">{{ tfa.busy?'Đang kiểm tra…':'Xác nhận' }}</button>
+  <div class="text-sm"><button type="button" class="text-mute" @click="closeTfa">Quay lại đăng nhập</button></div>
+ </form>
+</div>
+<!-- 2FA: thiết lập (quét QR) -->
+<div v-if="tfa2.showSetup" class="fixed inset-0 z-[150] grid place-items-center bg-black/50 p-4 overflow-y-auto" role="dialog" aria-labelledby="tfa2s-t" @click.self="tfaCloseSetup">
+ <div class="card w-full max-w-sm p-6 text-center space-y-3">
+  <template v-if="!tfa2.backup.length">
+   <h2 id="tfa2s-t" class="text-xl font-bold">Bật xác thực 2 bước</h2>
+   <p class="text-sm text-mute">Mở app <b>Google Authenticator</b> (hoặc Authy) → quét mã QR, rồi nhập mã 6 số hiện trong app để xác nhận.</p>
+   <img v-if="tfa2.qr" :src="tfa2.qr" alt="Mã QR 2FA" class="mx-auto rounded border border-line" style="width:220px;height:220px">
+   <p class="text-xs text-mute break-all">Không quét được? Nhập tay mã này:<br><b class="text-ink select-all">{{ tfa2.secret }}</b></p>
+   <input v-model="tfa2.code" class="ip text-center text-2xl tracking-[.25em] font-bold" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" aria-label="Mã 6 số từ app" @input="tfa2.err=''">
+   <p class="text-sm min-h-[1.25rem]" style="color:#d64545" role="alert">{{ tfa2.err }}</p>
+   <button class="btn btn-g w-full" :disabled="tfa2.busy" @click="tfaEnable">{{ tfa2.busy?'Đang kiểm tra…':'Xác nhận bật' }}</button>
+   <div class="text-sm"><button type="button" class="text-mute" @click="tfaCloseSetup">Để sau</button></div>
+  </template>
+  <template v-else>
+   <h2 class="text-xl font-bold">Mã dự phòng của bạn</h2>
+   <p class="text-sm" style="color:#d64545"><b>Lưu 8 mã này ngay</b> — mỗi mã chỉ dùng được <b>1 lần</b>, dùng khi mất điện thoại. Chúng chỉ hiện <b>1 lần duy nhất</b>.</p>
+   <div class="grid grid-cols-2 gap-2 text-center font-mono font-bold text-lg"><span v-for="c in tfa2.backup" :key="c" class="rounded border border-line py-1 select-all">{{ c }}</span></div>
+   <label class="flex items-center justify-center gap-2 text-sm"><input type="checkbox" v-model="tfa2.bkSaved"> Tôi đã lưu 8 mã này ở nơi an toàn</label>
+   <button class="btn btn-g w-full" :disabled="!tfa2.bkSaved" @click="tfaCloseSetup">Hoàn tất</button>
+  </template>
+ </div>
+</div>
+<!-- 2FA: tắt -->
+<div v-if="tfa2.showOff" class="fixed inset-0 z-[150] grid place-items-center bg-black/50 p-4 overflow-y-auto" role="dialog" aria-labelledby="tfa2o-t" @click.self="tfa2.showOff=false">
+ <form class="card w-full max-w-sm p-6 text-center space-y-3" novalidate @submit.prevent="tfaDisable">
+  <h2 id="tfa2o-t" class="text-xl font-bold">Tắt xác thực 2 bước</h2>
+  <p class="text-sm text-mute">Nhập mật khẩu và mã 2FA hiện tại để xác nhận.</p>
+  <input v-model="tfa2.pw" type="password" class="ip" autocomplete="current-password" placeholder="Mật khẩu hiện tại" aria-label="Mật khẩu hiện tại" @input="tfa2.err=''">
+  <input v-model="tfa2.code" class="ip text-center text-2xl tracking-[.25em] font-bold" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="Mã 6 số / mã dự phòng" aria-label="Mã 2FA" @input="tfa2.err=''">
+  <p class="text-sm min-h-[1.25rem]" style="color:#d64545" role="alert">{{ tfa2.err }}</p>
+  <button class="btn w-full" style="background:#d64545;color:#fff" :disabled="tfa2.busy">{{ tfa2.busy?'Đang xử lý…':'Tắt 2FA' }}</button>
+  <div class="text-sm"><button type="button" class="text-mute" @click="tfa2.showOff=false">Hủy</button></div>
+ </form>
+</div>
+<!-- 2FA: tạo lại mã dự phòng -->
+<div v-if="tfa2.showBk" class="fixed inset-0 z-[150] grid place-items-center bg-black/50 p-4 overflow-y-auto" role="dialog" aria-labelledby="tfa2b-t" @click.self="tfa2.showBk=false">
+ <form class="card w-full max-w-sm p-6 text-center space-y-3" novalidate @submit.prevent="tfaNewBackup">
+  <h2 id="tfa2b-t" class="text-xl font-bold">Mã dự phòng mới</h2>
+  <p class="text-sm text-mute">8 mã cũ sẽ hết hiệu lực ngay. Nhập mã 6 số từ app để xác nhận.</p>
+  <input v-model="tfa2.code" class="ip text-center text-2xl tracking-[.25em] font-bold" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" aria-label="Mã 6 số từ app" @input="tfa2.err=''">
+  <p class="text-sm min-h-[1.25rem]" style="color:#d64545" role="alert">{{ tfa2.err }}</p>
+  <button class="btn btn-g w-full" :disabled="tfa2.busy">{{ tfa2.busy?'Đang xử lý…':'Tạo mã mới' }}</button>
+  <div class="text-sm"><button type="button" class="text-mute" @click="tfa2.showBk=false">Hủy</button></div>
+ </form>
+</div>
+<div v-if="fp.show" class="fixed inset-0 z-[150] grid place-items-center bg-bg p-4 overflow-y-auto" role="dialog" aria-labelledby="fp-t">
+ <form class="card w-full max-w-sm p-6 text-center space-y-3" novalidate @submit.prevent="fp.step===1?fpSend():fpReset()">
+  <div class="mx-auto grid place-items-center w-14 h-14 rounded-2xl bg-zg text-white"><c-ic n="lock" cls="w-8 h-8"></c-ic></div>
+  <h2 id="fp-t" class="text-xl font-bold">Quên mật khẩu</h2>
+  <template v-if="fp.step===1">
+   <p class="text-sm text-mute">Nhập email đã đăng ký, chúng tôi sẽ gửi mã 10 chữ số để đặt lại mật khẩu.</p>
+   <input v-model="fp.email" type="email" class="ip" autocomplete="email" placeholder="Email của bạn" aria-label="Email" @input="fp.err=''">
+  </template>
+  <template v-else>
+   <p class="text-sm text-mute">Nếu <b class="text-ink break-all">{{ fp.email }}</b> đã đăng ký, mã gồm 10 chữ số đã được gửi tới email đó (hiệu lực 15 phút).</p>
+   <input v-model="fp.code" class="ip text-center text-2xl tracking-[.25em] font-bold" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="••••••••••" aria-label="Mã xác nhận" @input="fp.err='';fp.code=fp.code.replace(/\D/g,'')">
+   <input v-model="fp.pw" :type="fp.show2?'text':'password'" class="ip" autocomplete="new-password" placeholder="Mật khẩu mới (8+ ký tự, có chữ và số)" aria-label="Mật khẩu mới" @input="fp.err=''">
+   <label class="flex items-center gap-2 text-sm text-mute justify-center"><input type="checkbox" v-model="fp.show2"> Hiện mật khẩu</label>
+  </template>
+  <p class="text-sm min-h-[1.25rem]" :style="{color:fp.ok?'var(--zg)':'#d64545'}" role="alert">{{ fp.err||fp.ok }}</p>
+  <button class="btn btn-g w-full" :disabled="fp.busy">{{ fp.busy?'Đang xử lý…':(fp.step===1?'Gửi mã':'Đặt lại mật khẩu') }}</button>
+  <div class="flex justify-between text-sm"><button v-if="fp.step===2" type="button" class="text-zb2" :class="{'opacity-50':fp.wait>0}" :disabled="fp.wait>0||fp.busy" @click="fpSend">{{ fp.wait>0?'Gửi lại mã sau '+fp.wait+'s':'Gửi lại mã' }}</button><span v-else></span><button type="button" class="text-mute" @click="closeFp">Quay lại</button></div>
+ </form>
+</div>
+<div v-if="!authed&&!booting" class="aw"><div class="au" :class="{up:mode==='up'}">
+ <div class="fc"><div class="sis">
+  <form class="fi" novalidate @submit.prevent="login">
+   <div class="br"><c-ic n="cloud"></c-ic>CoolAir</div>
+   <h2 class="at">Đăng nhập</h2>
+   <div class="fw"><label class="af" :class="{bad:t.u&&(er.u||srv.u)}"><c-ic n="user"></c-ic><input v-model="f.u" name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Tên đăng nhập hoặc email" @blur="t.u=1" @input="srv.u='';err=''" :aria-invalid="!!(t.u&&(er.u||srv.u))" aria-describedby="u-e"></label><small class="fe" id="u-e" v-if="t.u&&(er.u||srv.u)">{{ srv.u||er.u }}</small></div>
+   <div class="fw"><label class="af pw" :class="{bad:t.p&&(er.p||srv.p)}"><c-ic n="lock"></c-ic><input v-model="f.p" name="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" :type="show.p?'text':'password'" placeholder="Mật khẩu" @blur="t.p=1" @input="srv.p='';err=''" :aria-invalid="!!(t.p&&(er.p||srv.p))" aria-describedby="p-e"><button type="button" class="ey" @click="show.p=!show.p" :aria-label="show.p?'Ẩn mật khẩu':'Hiện mật khẩu'">{{ show.p?'🙈':'👁️' }}</button></label><small class="fe" id="p-e" v-if="t.p&&(er.p||srv.p)">{{ srv.p||er.p }}</small></div>
+   <p class="ae" :class="{hint:!err}" role="alert">{{ err||'Chào mừng bạn trở lại 👋' }}</p>
+   <button class="ab" :disabled="busy">{{ busy?'Đang xử lý…':'Đăng nhập' }}</button>
+   <p class="text-center text-sm mt-2"><a href="#" class="text-zb2" @click.prevent="openFp">Quên mật khẩu?</a></p>
+  </form>
+  <form class="fu" novalidate @submit.prevent="register">
+   <div class="br"><c-ic n="cloud"></c-ic>CoolAir</div>
+   <h2 class="at">Tạo tài khoản</h2>
+   <div class="fw"><label class="af" :class="{bad:t.s&&(er.s||srv.s)}"><c-ic n="user"></c-ic><input v-model="f.s" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="20" placeholder="Tên đăng nhập (dùng để đăng nhập)" @blur="t.s=1" @input="srv.s='';err=''" :aria-invalid="!!(t.s&&(er.s||srv.s))" aria-describedby="s-e"></label><small class="fe" id="s-e" v-if="t.s&&(er.s||srv.s)">{{ srv.s||er.s }}</small></div>
+   <div class="fw"><label class="af" :class="{bad:t.e&&(er.e||srv.e)}"><c-ic n="mail"></c-ic><input v-model="f.e" type="email" autocomplete="email" placeholder="Email" @blur="t.e=1" @input="srv.e='';err=''" :aria-invalid="!!(t.e&&(er.e||srv.e))" aria-describedby="e-e"></label><small class="fe" id="e-e" v-if="t.e&&(er.e||srv.e)">{{ srv.e||er.e }}</small></div>
+   <div class="fw"><label class="af pw" :class="{bad:t.w&&(er.w||srv.w)}"><c-ic n="lock"></c-ic><input v-model="f.w" :type="show.w?'text':'password'" placeholder="Mật khẩu (8+ ký tự, chữ và số)" @blur="t.w=1" @input="srv.w='';err=''" :aria-invalid="!!(t.w&&(er.w||srv.w))" aria-describedby="w-e"><button type="button" class="ey" @click="show.w=!show.w" :aria-label="show.w?'Ẩn mật khẩu':'Hiện mật khẩu'">{{ show.w?'🙈':'👁️' }}</button></label><small class="fe" id="w-e" v-if="t.w&&(er.w||srv.w)">{{ srv.w||er.w }}</small></div>
+   <div class="sm" :class="'lv'+sc" v-if="f.w"><i v-for="n in 3" :key="n" :class="{on:sc>=n}"></i><span>{{ ['','Yếu','Khá','Mạnh'][sc] }}</span></div>
+   <div class="fw"><label class="af" :class="{bad:t.i&&(er.i||srv.i)}"><c-ic n="user"></c-ic><input v-model="f.i" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="12" placeholder="Mã mời (không bắt buộc)" @blur="t.i=1;invCheck()" @input="srv.i='';err=''" :aria-invalid="!!(t.i&&(er.i||srv.i))" aria-describedby="i-e"></label><small class="fe" id="i-e" v-if="t.i&&(er.i||srv.i)">{{ srv.i||er.i }}</small><small v-else-if="inv.by" class="text-xs" style="color:#2f8f4e">✓ Bạn được {{ inv.by }} mời — đăng ký xong sẽ tự thành bạn bè.</small></div>
+   <p class="ae" role="alert">{{ err }}</p>
+   <button class="ab" :disabled="busy">{{ busy?'Đang xử lý…':'Đăng ký' }}</button>
+  </form>
+ </div></div>
+ <div class="pc">
+  <div class="pn pl"><div class="ct"><h3>Bạn mới đến CoolAir?</h3><p>Tạo tài khoản để kết bạn, nhắn tin và lưu giữ kỷ niệm cùng bạn bè.</p><button type="button" class="ab tr" @click="sw('up')">Đăng ký</button></div><img :src="IMG.log" alt=""></div>
+  <div class="pn pr"><div class="ct"><h3>Đã có tài khoản?</h3><p>Đăng nhập để xem bạn bè đang làm gì nhé.</p><button type="button" class="ab tr" @click="sw('in')">Đăng nhập</button></div><img :src="IMG.reg" alt=""></div>
+ </div>
+</div></div>
+<template v-if="authed">
+<!-- MOBILE (phpFox mobile theme): header Home | tiêu đề | Menu | Thông báo, ô tìm kiếm, lưới menu chính, nút quay lại -->
+<div id="mobile_header" role="banner">
+ <a href="#" id="mobile_header_home" :aria-label="view==='home'?'Đăng bài mới':'Quay lại'" @click.prevent="view==='home'?(mm=false,$refs.st&&$refs.st.focus()):mBack()"><svg viewBox="0 0 24 24" aria-hidden="true"><path :d="view==='home'?IGI.plus:IGI.back"/></svg></a>
+ <span class="mh_title">{{ mTitle }}</span>
+ <button type="button" id="mobile_main_sub_menu" :aria-label="mm?'Đóng menu':'Mở menu'" :aria-expanded="mm" @click="mm=!mm"><svg viewBox="0 0 24 24" aria-hidden="true"><path :d="mm?IGI.x:IGI.menu"/></svg></button>
+ <a href="#" id="mobile_header_notification" :aria-label="nt.unseen?('Thông báo ('+nt.unseen+' mới)'):'Thông báo'" @click.prevent="mm=false;go('notifications')"><svg viewBox="0 0 24 24" aria-hidden="true"><path :d="IGI.bell"/></svg><b v-if="nt.unseen" class="mh_badge">{{ nt.unseen>99?'99+':nt.unseen }}</b></a>
+</div>
+<nav v-if="mm" id="mobile_main_menu" aria-label="Menu chính">
+ <div class="mm_top"><b>Menu</b><button type="button" aria-label="Đóng menu" @click="mm=false"><svg viewBox="0 0 24 24" aria-hidden="true"><path :d="IGI.x"/></svg></button></div>
+ <a v-for="m in mmItems" :key="m.k" href="#" @click.prevent="mmGo(m)"><span class="mm_i">{{ m.e }}</span>{{ m.l }}<b v-if="m.n" class="mh_badge">{{ m.n>99?'99+':m.n }}</b></a>
+</nav>
+<div id="mobile_search">
+ <input v-model="q" type="search" placeholder="Tìm trong bạn bè..." aria-label="Tìm trong bạn bè" @focus="sf=true" @blur="sf=false">
+ <div v-if="sf&&q.trim()" class="ms_sug">
+  <button v-for="x in sug" :key="x.id" type="button" class="mi w-full" @mousedown.prevent @click="q='';openUser(x.id)"><c-av :name="x.n" :src="x.a" :size="28"></c-av><span class="truncate">{{ x.n }}</span></button>
+  <div v-if="!sug.length" class="p-2 text-mute text-sm">Không có bạn bè nào khớp “{{ q }}”.</div>
+ </div>
+</div>
+<div v-if="view!=='home'&&view!=='user'" id="mobile_back"><a href="#" @click.prevent="mBack">‹ Trang trước</a></div>
+
+<!-- HEADER (phpFox: #header > .holder) -->
+<div id="header">
+ <div class="headerwarp">
+  <h1 class="logo"><a href="#" @click.prevent="go('home')" aria-label="CoolAir"><c-ic n="cloud" cls="w-6 h-6"></c-ic><span>CoolAir</span></a></h1>
+  <ul class="menu">
+   <li><a href="#" @click.prevent="go('home')">Trang chủ</a></li>
+   <li><a href="#" @click.prevent="go('profile');tab='nk'">Trang cá nhân</a></li>
+   <li><a href="#" @click.prevent="go('profile');tab='bb'">Bạn bè</a></li>
+   <li><a href="#" @click.prevent="gGo()">Nhóm</a></li>
+   <li><a href="#" @click.prevent="go('profile');tab='bb'">Tin nhắn<template v-if="fr.unread">(Mới)</template></a></li>
+   <li v-if="fr.incoming.length+pk.list.length+gr.invN" class="notify"><a href="#" @click.prevent="fr.incoming.length?(go('profile'),tab='bb'):pk.list.length?(go('profile'),tab='ch'):gGo()">{{ fr.incoming.length+pk.list.length+gr.invN }} thông báo</a></li>
+  </ul>
+  <div class="nt" @click.stop>
+   <a href="#" class="nt-btn" role="button" aria-haspopup="true" :aria-expanded="nt.open" :title="nt.unseen?('Thông báo ('+nt.unseen+' mới)'):'Thông báo'" @click.prevent="ntToggle"><span class="nt-l">Thông báo</span><span class="nt-bell">🔔<span v-if="nt.unseen" class="nt-n">{{ nt.unseen>99?'99+':nt.unseen }}</span></span></a>
+   <div v-if="nt.open" class="nt-drop" role="menu" @keydown.esc="nt.open=false" @click="nt.mid=''">
+    <div class="nt-t">Thông báo</div>
+    <div v-if="nt.busy&&!nt.items.length" class="nt-e">Đang tải…</div>
+    <div v-else-if="nt.items.length" class="nt-list">
+     <template v-for="g in [{k:'Mới',l:nt.items.filter(x=>x.isNew)},{k:'Trước đó',l:nt.items.filter(x=>!x.isNew)}]" :key="g.k">
+      <template v-if="g.l.length">
+       <div class="nt-sec">{{ g.k }}</div>
+       <div v-for="it in g.l" :key="it.id" class="nt-row" :class="{nw:it.isNew}">
+        <a href="#" class="nt-main" role="menuitem" @click.prevent="ntGo(it)">
+         <span class="nt-av"><c-av :name="it.actor.name" :src="it.actor.avatar" :size="52"></c-av><span class="nt-bd">{{ it.icon }}</span></span>
+         <span class="nt-tx"><b>{{ it.who }}</b> {{ it.msg }}<template v-if="it.title"> “{{ it.title }}”</template><span class="nt-tm">{{ ago(it.at) }}</span></span>
+        </a>
+        <button type="button" class="nt-more" aria-label="Tùy chọn" @click.stop="nt.mid=nt.mid===it.id?'':it.id">•••</button>
+        <div v-if="nt.mid===it.id" class="nt-mn" @click.stop><button type="button" @click="ntDelD(it)">✕ Xóa thông báo này</button></div>
+       </div>
+      </template>
+     </template>
+    </div>
+    <div v-else class="nt-e">Không có thông báo mới.</div>
+    <a href="#" class="nt-all" @click.prevent="nt.open=false;go('notifications')">Xem thông báo trước đó</a>
+   </div>
+  </div>
+  <div class="px-search">
+   <div class="relative">
+    <input v-model="q" @focus="sf=true" @blur="sf=false" class="t_input" placeholder="Tìm trong bạn bè..." aria-label="Tìm trong bạn bè">
+    <div v-show="sf" class="absolute right-0 top-8 w-64 card p-2 text-ink text-sm z-30">
+     <button v-for="x in sug" :key="x.id" type="button" class="mi w-full" @mousedown.prevent="q='';openUser(x.id)"><c-av :name="x.n" :src="x.a" :size="28"></c-av><span class="truncate">{{ x.n }}</span></button>
+     <div v-if="!sug.length" class="p-2 text-mute">Không có bạn bè nào khớp “{{ q }}”. Tìm người mới ở Trang cá nhân → Bạn bè.</div>
+    </div>
+   </div>
+  </div>
+  <div class="nav_account">
+   <a href="#" class="login_thumb" :title="me" @click.prevent="go('profile')"><c-av :name="me" :src="acct.avatar" :size="20"></c-av></a>
+   <a href="#" class="loginName" @click.prevent="go('profile')">{{ me }}</a><br>
+   <a href="#" @click.prevent="go('settings')">Cài đặt</a> <a href="#" @click.prevent="openTheme">Giao diện</a> <a href="#" @click.prevent="logout">Thoát</a>
+  </div>
+ </div>
+</div>
+
+<div id="wrap">
+<div id="main" :class="{nosb:view==='profile'||view==='user'}">
+ <div id="app_sidebar">
+  <form class="px-2 pb-2" role="search" @submit.prevent="sGo(sq)"><input v-model="sq" class="ip text-sm" maxlength="40" placeholder="Tìm kiếm toàn site…" aria-label="Tìm kiếm toàn site"></form>
+  <ul class="app_list">
+   <li v-for="m in menu" :key="m[0]"><img :src="'/img/uch/app/'+m[3]+'.gif'" alt=""><a href="#" @click.prevent="m[1]==='groups'?gGo():(go(m[1]),m[2]&&(tab=m[2]))">{{ m[0] }}</a></li>
+  </ul>
+  <div class="app_m"><ul><li><img src="/img/uch/app_set.gif" alt=""><a href="#" @click.prevent="openTheme">Giao diện</a></li></ul></div>
+ </div>
+ <div id="mainarea">
+<div class="mx-auto">
+
+<!-- ===== TRANG CHỦ ===== -->
+<section v-if="view==='home'" class="grid gap-5 min-[980px]:grid-cols-[minmax(0,1fr)_250px]">
+
+ <div class="space-y-3 min-w-0">
+  <div class="neo-hero"><h1>Chia sẻ khoảnh khắc <em>Cùng bạn bè</em></h1><p>Đăng bài, nhắn tin, gọi video và lưu giữ kỷ niệm. Miễn phí 100% – Không quảng cáo rác!</p></div>
+  <div v-if="siteCfg.announcement" class="card p-3 text-sm">📢 {{ siteCfg.announcement }}</div>
+  <div v-for="a in anncs" :key="a.id" class="card p-3 text-sm"><b>📢 {{ a.title }}</b><p class="mt-1 break-words">{{ a.text }}</p><button class="gh !text-xs mt-1" @click="anncs=anncs.filter(x=>x.id!==a.id)">Ẩn</button></div>
+  <a v-if="pk.list.length" href="#" class="card p-3 flex items-center gap-2 text-sm" @click.prevent="go('profile');tab='ch'">👋 <span class="min-w-0 truncate"><b>{{ pk.list[0].name }}</b><template v-if="pk.list.length>1"> và {{ pk.list.length-1 }} người khác</template> đã chọc bạn</span><span class="ml-auto text-zb2 font-semibold">Xem</span></a>
+  <div class="card p-3 cmp" :class="{cmpc:!cmpOpen&&!draft&&!att.ph.length&&!att.up&&!att.vid&&att.vp===null&&!att.loc}" @focusin="cmpOpen=true">
+   <div class="flex gap-3"><c-av :name="me" :src="acct.avatar" :size="40"></c-av><textarea ref="st" v-mention v-model="draft" rows="2" class="ip resize-none" :placeholder="'Hôm nay bạn thế nào, '+me.split(' ').pop()+'?'"></textarea></div>
+   <div class="cmp-more">
+   <c-attach :att="att"></c-attach>
+   <div class="flex flex-wrap items-center gap-1 mt-2">
+    <c-emo @pick="emoPick"></c-emo>
+    <button type="button" class="gh" @click="checkIn" :title="att.loc&&att.loc.name?('Đã check-in: '+att.loc.name):'Check-in vị trí hiện tại'">📍 {{ att.loc?(att.loc.busy?'Đang lấy vị trí…':(att.loc.name||'Vị trí')):'Check-in' }}</button>
+    <button v-if="att.loc&&att.loc.name" type="button" class="gh" @click="att.loc=null" title="Xóa check-in">✕</button>
+    <select v-model="vis" class="ip !w-auto !py-1.5 text-sm ml-auto" aria-label="Ai xem được bài này"><option value="public">Công khai</option><option value="friends">Bạn bè</option><option value="private">Chỉ mình tôi</option></select>
+    <button class="btn btn-g" @click="pub();cmpOpen=false">Đăng</button>
+   </div>
+   </div>
+  </div>
+  <c-feed :groups="feed" :more="more.all" :busy="busyM" :first="first" @more="loadMore('all')" @del="del">Bảng tin chỉ hiện bài của bạn và bạn bè. Hãy đăng bài hoặc kết thêm bạn nhé! ✨</c-feed>
+ </div>
+
+ <aside class="hidden min-[980px]:block space-y-3 self-start">
+  <div class="card sidebox">
+   <div class="ch">Bạn bè</div><div class="p-2">
+   <input v-model="fq" class="ip text-sm mb-2" placeholder="Tìm nhanh bạn bè...">
+   <button v-for="f in online" :key="f.id" class="mi w-full" @click="openChat(f)"><c-av :name="f.n" :src="f.a" :size="32"></c-av><span class="truncate">{{ f.n }}</span><span class="ml-auto text-zg text-xs" :class="{'font-bold':f.u}">{{ f.u?f.u+' mới':'💬' }}</span></button>
+   <div v-if="!online.length" class="text-sm text-mute p-2">Chưa có bạn nào. Vào Trang cá nhân → Bạn bè để kết bạn.</div>
+  </div></div>
+  <c-shout></c-shout>
+ </aside>
+</section>
+
+<!-- ===== TRANG CÁ NHÂN (space_index.htm: #ubar | #content | #obar) ===== -->
+<!-- ===== QUẢN TRỊ: quản lý thành viên (admincp user/browse + ban) ===== -->
+<section v-else-if="view==='admin'&&acct.admin" class="space-y-3">
+ <h2 class="title"><img src="/img/uch/app/setting.gif" alt="">Quản trị</h2>
+ <div class="tabs_header"><button type="button" class="uc-tab" :class="{on:adm.tab==='stats'}" @click="admTab('stats')"><span>Thống kê</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='users'}" @click="admTab('users')"><span>Thành viên</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='reports'}" @click="admTab('reports')"><span>Tố cáo</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='mod'}" @click="admTab('mod')"><span>Kiểm duyệt</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='censor'}" @click="admTab('censor')"><span>Từ cấm</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='credit'}" @click="admTab('credit')"><span>Điểm & NV</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='hot'}" @click="admTab('hot')"><span>Nổi bật</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='ip'}" @click="admTab('ip')"><span>Chặn IP</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='logs'}" @click="admTab('logs')"><span>Nhật ký</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='cfg'}" @click="admTab('cfg')"><span>Cấu hình</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='grp'}" @click="admTab('grp')"><span>Nhóm quyền</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='topics'}" @click="admTab('topics')"><span>Chủ đề</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='magic'}" @click="admTab('magic')"><span>Đạo cụ</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='pfx'}" @click="admTab('pfx')"><span>Danh mục</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='cmap'}" @click="admTab('cmap')"><span>Bản đồ</span></button></div>
+ <!-- ===== Bản đồ check-in nhóm ===== -->
+ <template v-if="adm.tab==='cmap'"><c-admin-map></c-admin-map></template>
+ <!-- ===== Thống kê ===== -->
+ <template v-if="adm.tab==='stats'">
+  <div class="flex items-center justify-between text-xs text-mute"><span>{{ adm.ss?('Cập nhật '+ago(adm.ss.at)):'' }}</span><span class="flex gap-2"><button type="button" class="btn !h-8 !bg-transparent !text-zb2 border border-line" @click="dlBackup">💾 Sao lưu dữ liệu</button><button type="button" class="btn !h-8 !bg-transparent !text-zb2 border border-line" :disabled="adm.sbusy" @click="admStats">{{ adm.sbusy?'Đang tải…':'↻ Làm mới' }}</button></span></div>
+  <p v-if="adm.err" class="text-sm" style="color:#d64545" role="alert">{{ adm.err }}</p>
+  <div v-if="!adm.ss&&adm.sbusy" class="text-mute">Đang tải…</div>
+  <template v-if="adm.ss">
+   <div class="adm-grid">
+    <div v-for="c in admCards" :key="c[1]" class="adm-card" :class="{hl:c[3]}"><b>{{ c[0] }}</b><span>{{ c[1] }}</span><small v-if="c[2]">{{ c[2] }}</small></div>
+   </div>
+   <div v-for="ch in admCharts" :key="ch.k" class="card p-3">
+    <div class="flex items-baseline justify-between"><b class="text-sm">{{ ch.t }} · 14 ngày</b><span class="text-xs text-mute">Tổng {{ ch.sum }} · cao nhất {{ ch.max }}/ngày</span></div>
+    <div class="adm-chart"><div v-for="(x,i) in ch.s" :key="x.d" class="adm-bar" :title="x.d.slice(8)+'/'+x.d.slice(5,7)+': '+x.n"><i :style="{height:(ch.max?Math.max(x.n?4:0,x.n/ch.max*100):0)+'%',background:ch.c}"></i></div></div>
+    <div class="flex justify-between text-[10px] text-mute mt-1"><span>{{ ch.s[0].d.slice(8)+'/'+ch.s[0].d.slice(5,7) }}</span><span>{{ ch.s[6].d.slice(8)+'/'+ch.s[6].d.slice(5,7) }}</span><span>Hôm nay</span></div>
+   </div>
+   <div class="card p-3 space-y-1"><b class="text-sm">Thành viên mới nhất</b>
+    <button v-for="u in adm.ss.latest" :key="u.id" type="button" class="mi w-full" @click="openUser(u.id)"><c-av :name="u.name" :src="u.avatar" :size="28"></c-av><span class="truncate flex-1 text-left">{{ u.name }} <span class="text-xs text-mute">@{{ u.username }}</span></span><span class="text-xs text-mute">{{ ago(u.joined) }}</span></button>
+   </div>
+   <div v-if="adm.ss.topPosters.length" class="card p-3 space-y-1"><b class="text-sm">Đăng bài nhiều nhất · 30 ngày</b>
+    <button v-for="(u,i) in adm.ss.topPosters" :key="u.id" type="button" class="mi w-full" @click="openUser(u.id)"><span class="w-5 text-mute text-sm">{{ i+1 }}</span><c-av :name="u.name" :src="u.avatar" :size="28"></c-av><span class="truncate flex-1 text-left">{{ u.name }}</span><b class="text-sm">{{ u.posts }} bài</b></button>
+   </div>
+   <div v-if="adm.ss.topGroups.length" class="card p-3 space-y-1"><b class="text-sm">Nhóm đông nhất</b>
+    <button v-for="(g,i) in adm.ss.topGroups" :key="g.id" type="button" class="mi w-full" @click="gOpen(g.id)"><span class="w-5 text-mute text-sm">{{ i+1 }}</span><span class="truncate flex-1 text-left">{{ g.name }}</span><span class="text-xs text-mute">{{ g.members }} thành viên · {{ g.threads }} chủ đề</span></button>
+   </div>
+  </template>
+ </template>
+ <!-- ===== Thành viên ===== -->
+ <template v-if="adm.tab==='users'">
+ <div v-if="adm.stats" class="adm-stats">
+  <button v-for="x in [['all','Tất cả',adm.stats.total],['recent','Hoạt động 24h',adm.stats.recent],['unverified','Chưa xác thực',adm.stats.unverified],['banned','Bị khóa',adm.stats.banned]]" :key="x[0]" type="button" class="adm-st" :class="{on:adm.f===x[0]}" @click="adm.f=x[0];admLoad(1)"><b>{{ x[2] }}</b><span>{{ x[1] }}</span></button>
+ </div>
+ <div class="flex gap-2"><input v-model="adm.q" @keydown.enter="admLoad(1)" class="ip flex-1 text-sm" maxlength="50" placeholder="Tìm theo tên, tên đăng nhập hoặc email..." aria-label="Tìm thành viên"><button type="button" class="btn" :disabled="adm.busy" @click="admLoad(1)">Tìm</button></div>
+ <p v-if="adm.err" class="text-sm" style="color:#d64545" role="alert">{{ adm.err }}</p>
+ <div v-if="adm.busy&&!adm.items.length" class="text-mute">Đang tải…</div>
+ <div class="space-y-2">
+  <div v-for="u in adm.items" :key="u.id" class="card p-2">
+   <div class="flex items-center gap-2">
+    <c-av :name="u.name" :src="u.avatar" :size="40"></c-av>
+    <div class="flex-1 min-w-0">
+     <div class="truncate"><b>{{ u.name }}</b> <c-tick :on="u.blueTick" :size="14"></c-tick> <span v-if="u.admin" class="adm-b" style="background:#3B5998">Admin</span><span v-if="u.banned" class="adm-b" style="background:#d64545">Đã khóa</span><span v-if="!u.verified" class="adm-b" style="background:#e8a317">Chưa xác thực</span></div>
+     <div class="text-xs text-mute truncate">@{{ u.username }} · {{ u.email }}</div>
+     <div class="text-xs text-mute">Tham gia {{ fmtDate(u.joined) }} · {{ u.lastSeen?('Hoạt động '+ago(u.lastSeen)):u.lastLogin?('Đăng nhập '+ago(u.lastLogin)):'Chưa ghi nhận đăng nhập' }}</div>
+    </div>
+    <button type="button" class="btn !h-8 !bg-transparent !text-zb2 border border-line" @click="admOpen(u)">{{ adm.open===u.id?'Đóng':'Quản lý' }}</button>
+   </div>
+   <div v-if="adm.open===u.id" class="mt-2 pt-2 border-t border-line space-y-2 text-sm">
+    <div v-if="!adm.det" class="text-mute">Đang tải…</div>
+    <template v-else>
+     <div class="adm-cnt"><span><b>{{ adm.det.counts.posts }}</b> bài viết</span><span><b>{{ adm.det.counts.albums }}</b> album</span><span><b>{{ adm.det.counts.photos }}</b> ảnh</span><span><b>{{ adm.det.counts.friends }}</b> bạn bè</span><span><b>{{ adm.det.counts.groups }}</b> nhóm</span><span><b>{{ adm.det.counts.threads }}</b> chủ đề</span></div>
+     <div class="text-xs text-mute break-words">SĐT: {{ adm.det.phone||'—' }} · Nơi ở: {{ adm.det.location||'—' }}<template v-if="adm.det.bio"> · “{{ adm.det.bio }}”</template></div>
+     <div v-if="u.banned" class="text-xs">Lý do khóa: <b>{{ u.banReason||'(không ghi)' }}</b><template v-if="u.bannedAt"> · {{ fmtDate(u.bannedAt) }}</template></div>
+     <template v-if="!u.admin&&!u.self">
+      <input v-if="!u.banned" v-model="adm.reason" class="ip text-sm" maxlength="100" placeholder="Lý do khóa (không bắt buộc, người bị khóa sẽ thấy)" aria-label="Lý do khóa">
+      <div class="flex flex-wrap gap-2 items-center">
+       <select v-model="adm.ugSel" class="ip !w-auto !h-8 text-sm" aria-label="Nhóm quyền"><option value="">— Nhóm quyền —</option><option v-for="g in adm.ugList" :key="g.id" :value="g.id">{{ g.name }}</option></select>
+       <button type="button" class="btn !h-8 !bg-transparent !text-zb2 border border-line" :disabled="adm.busy" @click="ugSet(u)">Lưu nhóm</button>
+      </div>
+      <div class="flex flex-wrap gap-2">
+       <button v-if="!u.banned" type="button" class="btn !h-8 !bg-transparent !text-[#d64545] border border-line" :disabled="adm.busy" @click="admAct(u,'ban')">🚫 Khóa tài khoản</button>
+       <button v-else type="button" class="btn btn-g !h-8" :disabled="adm.busy" @click="admAct(u,'unban')">✔ Mở khóa</button>
+       <button v-if="!u.verified" type="button" class="btn !h-8 !bg-transparent !text-zb2 border border-line" :disabled="adm.busy" @click="admAct(u,'verify')">✉ Xác thực email</button>
+       <button type="button" class="btn !h-8 !bg-transparent !text-zb2 border border-line" :disabled="adm.busy" @click="admAct(u,'tick')">{{ u.blueTick?'✓ Gỡ tick xanh':'✓ Cấp tick xanh' }}</button>
+       <button type="button" class="btn !h-8 !bg-transparent !text-zb2 border border-line" @click="openUser(u.id)">Xem trang cá nhân</button>
+       <button type="button" class="btn !h-8 !bg-transparent !text-[#d64545] border border-line" :disabled="adm.busy" @click="admDel(u)">🗑 Xóa vĩnh viễn</button>
+      </div>
+     </template>
+     <div v-else class="text-xs text-mute">Không thể khóa hoặc xóa quản trị viên / chính bạn.</div>
+    </template>
+   </div>
+  </div>
+  <p v-if="!adm.busy&&!adm.items.length&&!adm.err" class="text-sm text-mute">Không có thành viên nào khớp.</p>
+ </div>
+ <div v-if="adm.pages>1" class="flex items-center justify-between text-sm"><button type="button" class="btn !h-8 !bg-transparent !text-zb2 border border-line" :disabled="adm.busy||adm.page<=1" @click="admLoad(adm.page-1)">‹ Trước</button><span class="text-mute">Trang {{ adm.page }}/{{ adm.pages }} · {{ adm.total }} thành viên</span><button type="button" class="btn !h-8 !bg-transparent !text-zb2 border border-line" :disabled="adm.busy||adm.page>=adm.pages" @click="admLoad(adm.page+1)">Sau ›</button></div>
+ </template>
+ <!-- ===== Tố cáo ===== -->
+ <template v-if="adm.tab==='reports'">
+  <div class="flex gap-1 flex-wrap"><button v-for="s in [['open','Chờ xử lý'],['reviewing','Đang xem'],['resolved','Đã xử lý'],['dismissed','Đã bỏ qua']]" :key="s[0]" type="button" class="btn !h-8 text-sm" :class="adm.rp.st===s[0]?'btn-g':'!bg-transparent border border-line'" @click="adm.rp.st=s[0];rpLoad(1)">{{ s[1] }}</button></div>
+  <p v-if="adm.err" class="text-sm" style="color:#d64545" role="alert">{{ adm.err }}</p>
+  <div v-if="adm.rp.busy&&!adm.rp.items.length" class="text-mute">Đang tải…</div>
+  <div v-else-if="!adm.rp.items.length" class="text-sm text-mute">Không có tố cáo nào.</div>
+  <div v-for="r in adm.rp.items" :key="r.id" class="card p-3 space-y-2">
+   <div class="text-sm"><b>{{ r.reporter?r.reporter.name:'?' }}</b> tố cáo <span class="px-1.5 py-0.5 rounded bg-bg text-xs">{{ r.kind }}</span><div class="text-mute break-words mt-1">Lý do: {{ r.reason }}</div><div class="text-xs text-mute mt-1">{{ ago(r.createdAt) }}<span v-if="r.note"> · Ghi chú: {{ r.note }}</span></div></div>
+   <div v-if="r.status==='open'||r.status==='reviewing'" class="flex gap-2 flex-wrap">
+    <button type="button" class="btn !h-8 text-sm !bg-transparent border border-line" :disabled="adm.rp.busy" @click="rpAct(r,'dismiss')">Bỏ qua</button>
+    <button type="button" class="btn !h-8 text-sm !bg-transparent border border-line" :disabled="adm.rp.busy" @click="rpAct(r,'delete')">🗑 Xóa nội dung</button>
+    <button type="button" class="btn !h-8 text-sm" style="background:#e5484d;color:#fff" :disabled="adm.rp.busy" @click="rpAct(r,'ban')">🔨 Khóa tài khoản</button>
+   </div>
+  </div>
+  <div v-if="adm.rp.pages>1" class="flex items-center justify-between text-sm"><button type="button" class="btn !h-8 !bg-transparent border border-line" :disabled="adm.rp.busy||adm.rp.page<=1" @click="rpLoad(adm.rp.page-1)">‹ Trước</button><span class="text-mute">Trang {{ adm.rp.page }}/{{ adm.rp.pages }}</span><button type="button" class="btn !h-8 !bg-transparent border border-line" :disabled="adm.rp.busy||adm.rp.page>=adm.rp.pages" @click="rpLoad(adm.rp.page+1)">Sau ›</button></div>
+ </template>
+ <!-- ===== Kiểm duyệt nội dung ===== -->
+ <template v-if="adm.tab==='mod'">
+  <div class="flex gap-1 flex-wrap"><button v-for="k in MODKINDS" :key="k[0]" type="button" class="btn !h-8 text-sm" :class="ax.mod.kind===k[0]?'btn-g':'!bg-transparent border border-line'" @click="ax.mod.kind=k[0];mxLoad(1)">{{ k[1] }}</button></div>
+  <div class="flex gap-2"><input v-model="ax.mod.q" @keydown.enter="mxLoad(1)" class="ip flex-1 text-sm" maxlength="50" placeholder="Tìm theo nội dung..." aria-label="Tìm nội dung"><button type="button" class="btn" :disabled="ax.mod.busy" @click="mxLoad(1)">Tìm</button></div>
+  <p v-if="adm.err" class="text-sm" style="color:#d64545" role="alert">{{ adm.err }}</p>
+  <div v-if="ax.mod.busy&&!ax.mod.items.length" class="text-mute">Đang tải…</div>
+  <div v-else-if="!ax.mod.items.length" class="text-sm text-mute">Không có nội dung nào.</div>
+  <div v-for="it in ax.mod.items" :key="it.id" class="card p-3 space-y-1">
+   <div class="text-sm break-words">{{ it.text }}</div>
+   <div class="text-xs text-mute">{{ it.author?it.author.name:'?' }} · {{ ago(it.createdAt) }}</div>
+   <div class="flex gap-2 flex-wrap"><button type="button" class="btn !h-8 text-sm !bg-transparent !text-[#d64545] border border-line" @click="mxDel(it)">🗑 Xóa vĩnh viễn</button>
+   <button v-if="['posts','blogs','doings','shares','events','photos'].includes(ax.mod.kind)&&(it.comments||it.replies||it.voters)" type="button" class="btn !h-8 text-sm !bg-transparent border border-line" @click="mcToggle(it)">💬 Bình luận ({{ it.comments||it.replies||0 }}) {{ ax.mod.cOpen===it.id?'▾':'▸' }}</button></div>
+   <div v-if="ax.mod.cOpen===it.id" class="space-y-1 pt-1">
+    <div v-if="ax.mod.cBusy&&!ax.mod.cItems" class="text-xs text-mute">Đang tải…</div>
+    <div v-if="ax.mod.cItems&&!ax.mod.cItems.length" class="text-xs text-mute">Không có bình luận nào.</div>
+    <div v-for="c in (ax.mod.cItems||[])" :key="c.id" class="flex gap-2 items-start text-sm"><div class="min-w-0 flex-1"><b class="text-xs">{{ c.name||'?' }}</b> <span class="text-xs text-mute">{{ ago(c.createdAt) }}</span><div class="break-words"><c-tx :t="c.text"></c-tx></div></div><button type="button" class="gh text-xs" @click="mcDel(it,c)">✕ Xóa</button></div>
+   </div>
+  </div>
+  <div v-if="ax.mod.pages>1" class="flex items-center justify-between text-sm"><button type="button" class="btn !h-8 !bg-transparent border border-line" :disabled="ax.mod.busy||ax.mod.page<=1" @click="mxLoad(ax.mod.page-1)">‹ Trước</button><span class="text-mute">Trang {{ ax.mod.page }}/{{ ax.mod.pages }} · {{ ax.mod.total }} mục</span><button type="button" class="btn !h-8 !bg-transparent border border-line" :disabled="ax.mod.busy||ax.mod.page>=ax.mod.pages" @click="mxLoad(ax.mod.page+1)">Sau ›</button></div>
+ </template>
+ <!-- ===== Từ cấm ===== -->
+ <template v-if="adm.tab==='censor'">
+  <div class="card p-3 space-y-2"><b class="text-sm">Thêm từ cấm</b>
+   <div class="flex gap-2 flex-wrap"><input v-model="ax.cx.word" class="ip flex-1 min-w-[140px] text-sm" maxlength="50" placeholder="Từ cấm" aria-label="Từ cấm"><input v-model="ax.cx.rep" class="ip flex-1 min-w-[140px] text-sm" maxlength="50" placeholder="Thay bằng (mặc định ***)" aria-label="Thay bằng"><button type="button" class="btn btn-g" @click="cxAdd">Thêm</button></div>
+   <p class="text-xs text-mute">Từ cấm sẽ tự động bị thay thế khi thành viên đăng bài, bình luận, nhắn tin.</p></div>
+  <p v-if="adm.err" class="text-sm" style="color:#d64545" role="alert">{{ adm.err }}</p>
+  <div v-if="ax.cx.busy" class="text-mute">Đang tải…</div>
+  <div v-else-if="!ax.cx.items.length" class="text-sm text-mute">Chưa có từ cấm nào.</div>
+  <div v-for="w in ax.cx.items" :key="w.id" class="mi"><b class="flex-1 text-sm">{{ w.word }}</b><span class="text-xs text-mute">→ {{ w.replacement }}</span><button class="gh text-xs" aria-label="Xóa từ cấm" @click="cxDel(w.id)">✕</button></div>
+ </template>
+ <!-- ===== Điểm & nhiệm vụ ===== -->
+ <template v-if="adm.tab==='credit'">
+  <p v-if="adm.err" class="text-sm" style="color:#d64545" role="alert">{{ adm.err }}</p>
+  <div v-if="ax.cr.busy&&!ax.cr.rules.length" class="text-mute">Đang tải…</div>
+  <div class="card p-3 space-y-2"><b class="text-sm">Quy tắc cộng điểm</b>
+   <div v-for="r in ax.cr.rules" :key="r.id" class="flex gap-2 items-center flex-wrap text-sm">
+    <span class="flex-1 min-w-[120px]">{{ r.label }}</span>
+    <label class="text-xs text-mute">Điểm <input v-model.number="r.credit" type="number" class="ip !w-16 !h-8"></label>
+    <label class="text-xs text-mute">KN <input v-model.number="r.exp" type="number" class="ip !w-16 !h-8"></label>
+    <label class="text-xs text-mute">Tối đa <input v-model.number="r.max" type="number" class="ip !w-16 !h-8"></label>
+    <select v-model="r.cycle" class="ip !w-auto !h-8 text-sm" aria-label="Chu kỳ"><option value="daily">Mỗi ngày</option><option value="once">Một lần</option></select>
+    <label class="text-xs"><input type="checkbox" v-model="r.enabled"> Bật</label>
+    <button type="button" class="btn !h-8 text-sm btn-g" @click="crSaveRule(r)">Lưu</button>
+   </div></div>
+  <div class="card p-3 space-y-2"><b class="text-sm">Nhiệm vụ tân thủ</b>
+   <div v-for="t in ax.cr.tasks" :key="t.id" class="space-y-1 border-b border-line pb-2">
+    <div class="flex gap-2 flex-wrap"><input v-model="t.name" class="ip flex-1 min-w-[120px] text-sm" maxlength="60" placeholder="Tên nhiệm vụ" aria-label="Tên nhiệm vụ"><input v-model="t.desc" class="ip flex-1 min-w-[160px] text-sm" maxlength="200" placeholder="Mô tả" aria-label="Mô tả"></div>
+    <div class="flex gap-2 items-center flex-wrap text-sm">
+     <label class="text-xs text-mute">Thưởng điểm <input v-model.number="t.credit" type="number" class="ip !w-16 !h-8"></label>
+     <label class="text-xs text-mute">Thưởng KN <input v-model.number="t.exp" type="number" class="ip !w-16 !h-8"></label>
+     <label class="text-xs"><input type="checkbox" v-model="t.enabled"> Bật</label>
+     <button type="button" class="btn !h-8 text-sm btn-g" @click="crSaveTask(t)">Lưu</button>
+    </div></div></div>
+  <div class="card p-3 space-y-2"><b class="text-sm">Cảm xúc bày tỏ (cách nhau bằng dấu cách)</b>
+   <div class="flex gap-2"><input v-model="ax.cr.clicks" class="ip flex-1 text-sm" maxlength="100" aria-label="Cảm xúc"><button type="button" class="btn btn-g" @click="crSaveClicks">Lưu</button></div></div>
+ </template>
+ <!-- ===== Thành viên nổi bật ===== -->
+ <template v-if="adm.tab==='hot'">
+  <div class="card p-3 space-y-2"><b class="text-sm">Thêm thành viên nổi bật</b>
+   <div class="flex gap-2 flex-wrap"><input v-model="ax.hot.uid" class="ip flex-1 min-w-[160px] text-sm" maxlength="24" placeholder="ID người dùng (24 ký tự hex)" aria-label="ID người dùng"><input v-model="ax.hot.note" class="ip flex-1 min-w-[140px] text-sm" maxlength="100" placeholder="Ghi chú (tùy chọn)" aria-label="Ghi chú"><button type="button" class="btn btn-g" @click="hotAdd">Thêm</button></div></div>
+  <p v-if="adm.err" class="text-sm" style="color:#d64545" role="alert">{{ adm.err }}</p>
+  <div v-if="ax.hot.busy" class="text-mute">Đang tải…</div>
+  <div v-else-if="!ax.hot.items.length" class="text-sm text-mute">Chưa có ai nổi bật.</div>
+  <div v-for="h in ax.hot.items" :key="h.id" class="mi"><c-av :name="h.user?h.user.name:'?'" :src="h.user?h.user.avatar:''" :size="36"></c-av><div class="flex-1 min-w-0"><b class="text-sm block truncate">{{ h.user?h.user.name:'?' }}</b><span v-if="h.note" class="text-xs text-mute">{{ h.note }}</span></div><button class="btn !h-8 text-sm !bg-transparent border border-line" @click="hotDel(h.id)">Gỡ</button></div>
+ </template>
+ <!-- ===== Chặn IP ===== -->
+ <template v-if="adm.tab==='ip'">
+  <div class="card p-3 space-y-2"><b class="text-sm">Chặn IP mới</b>
+   <div class="flex gap-2 flex-wrap"><input v-model="ax.ip.addr" class="ip flex-1 min-w-[140px] text-sm" maxlength="45" placeholder="Địa chỉ IP" aria-label="Địa chỉ IP"><input v-model="ax.ip.reason" class="ip flex-1 min-w-[140px] text-sm" maxlength="200" placeholder="Lý do (tùy chọn)" aria-label="Lý do"><button type="button" class="btn btn-g" @click="ipAdd">Chặn</button></div></div>
+  <p v-if="adm.err" class="text-sm" style="color:#d64545" role="alert">{{ adm.err }}</p>
+  <div v-if="ax.ip.busy" class="text-mute">Đang tải…</div>
+  <div v-else-if="!ax.ip.items.length" class="text-sm text-mute">Chưa chặn IP nào.</div>
+  <div v-for="b in ax.ip.items" :key="b.id" class="mi"><b class="flex-1 text-sm font-mono">{{ b.ip }}</b><span class="text-xs text-mute">{{ b.reason||'' }} · {{ ago(b.createdAt) }}</span><button class="btn !h-8 text-sm !bg-transparent border border-line" @click="ipDel(b.id)">Gỡ</button></div>
+ </template>
+ <!-- ===== Nhật ký admin ===== -->
+ <template v-if="adm.tab==='logs'">
+  <p v-if="adm.err" class="text-sm" style="color:#d64545" role="alert">{{ adm.err }}</p>
+  <div v-if="ax.lg.busy&&!ax.lg.items.length" class="text-mute">Đang tải…</div>
+  <div class="card p-2 flex flex-wrap items-center gap-2 text-sm">
+   <select v-model="ax.lg.action" class="ip !w-auto text-sm" aria-label="Lọc theo hành động" @change="lgLoad(1)">
+    <option value="">Tất cả hành động</option>
+    <option value="ban">Cấm tài khoản</option><option value="unban">Gỡ cấm</option><option value="verify">Duyệt tài khoản</option>
+    <option value="delete_user">Xóa tài khoản</option><option value="mod_delete">Xóa nội dung</option>
+    <option value="censor_add">Thêm từ cấm</option><option value="censor_del">Xóa từ cấm</option>
+    <option value="ipban_add">Chặn IP</option><option value="ipban_del">Gỡ chặn IP</option>
+    <option value="pfield_add">Thêm field hồ sơ</option><option value="pfield_edit">Sửa field hồ sơ</option>
+    <option value="pfield_del">Xóa field hồ sơ</option><option value="pfield_order">Sắp xếp field</option>
+    <option value="checkin_clear">Gỡ vị trí check-in</option><option value="tick_grant">Cấp tick xanh</option><option value="tick_revoke">Gỡ tick xanh</option><option value="site_config">Đổi cấu hình</option><option value="backup">Sao lưu</option>
+   </select>
+   <input v-model="ax.lg.q" class="ip text-sm flex-1" style="min-width:140px" maxlength="60" placeholder="Tìm theo tên/đối tượng…" aria-label="Tìm kiếm nhật ký" @keyup.enter="lgLoad(1)">
+   <button type="button" class="btn btn-g text-sm" @click="lgLoad(1)">Lọc</button>
+   <button v-if="ax.lg.action||ax.lg.q" type="button" class="gh text-xs" @click="ax.lg.action='';ax.lg.q='';lgLoad(1)">Xóa lọc</button>
+  </div>
+  <div v-if="!ax.lg.busy&&!ax.lg.items.length" class="text-sm text-mute">Chưa có nhật ký nào.</div>
+  <div v-for="l in ax.lg.items" :key="l.id" class="card p-2 text-sm"><b>{{ l.admin?l.admin.name:'?' }}</b> <span class="px-1.5 py-0.5 rounded bg-bg text-xs">{{ l.action }}</span><span v-if="l.target" class="text-mute"> → {{ l.target }}</span><div v-if="l.note" class="text-xs text-mute break-words">{{ l.note }}</div><div class="text-xs text-mute">{{ ago(l.createdAt) }}</div></div>
+  <div v-if="ax.lg.pages>1" class="flex items-center justify-between text-sm"><button type="button" class="btn !h-8 !bg-transparent border border-line" :disabled="ax.lg.busy||ax.lg.page<=1" @click="lgLoad(ax.lg.page-1)">‹ Trước</button><span class="text-mute">Trang {{ ax.lg.page }}/{{ ax.lg.pages }}</span><button type="button" class="btn !h-8 !bg-transparent border border-line" :disabled="ax.lg.busy||ax.lg.page>=ax.lg.pages" @click="lgLoad(ax.lg.page+1)">Sau ›</button></div>
+ </template>
+ <!-- ===== Cấu hình site ===== -->
+ <template v-if="adm.tab==='cfg'">
+  <div class="card p-3 space-y-2"><b class="text-sm">Cấu hình chung</b>
+   <p v-if="adm.err" class="text-sm" style="color:#d64545" role="alert">{{ adm.err }}</p>
+   <div v-if="ax.cf.busy&&!ax.cf.keys.length" class="text-mute">Đang tải…</div>
+   <label v-for="k in ax.cf.keys" :key="k.key" class="block text-sm"><span class="text-mute">{{ k.label }}</span><input v-model="k.value" class="ip mt-1 text-sm" :maxlength="k.max||200" :aria-label="k.label"></label>
+   <button type="button" class="btn btn-g" :disabled="ax.cf.busy" @click="cfSave">{{ ax.cf.busy?'Đang lưu…':'Lưu tất cả' }}</button></div>
+  <div class="card p-3 space-y-2"><b class="text-sm">Phân loại sự kiện</b>
+   <div class="flex gap-2"><input v-model="ax.evc.name" class="ip text-sm" maxlength="40" placeholder="Tên phân loại mới…" aria-label="Tên phân loại" @keyup.enter="evcAdd"><button type="button" class="btn btn-g text-sm" @click="evcAdd">Thêm</button></div>
+   <div v-if="ax.evc.busy&&!ax.evc.items.length" class="text-mute text-sm">Đang tải…</div>
+   <div v-for="c in ax.evc.items" :key="c.id" class="flex items-center gap-2 text-sm"><b class="flex-1">🏷️ {{ c.name }}</b><span class="text-xs text-mute">{{ c.count }} sự kiện</span><button type="button" class="gh text-xs" @click="evcRen(c)">Đổi tên</button><button type="button" class="gh text-xs" @click="evcDel(c)">Xóa</button></div></div>
+  <div class="card p-3 space-y-2"><b class="text-sm">Quản lý tag nhật ký</b>
+   <div class="flex gap-2"><input v-model="ax.tg.to" class="ip text-sm" maxlength="20" placeholder="Tag đích để gộp (để trống sẽ hỏi khi gộp)…" aria-label="Tag đích"></div>
+   <div v-if="ax.tg.busy&&!ax.tg.items.length" class="text-mute text-sm">Đang tải…</div>
+   <div v-if="!ax.tg.busy&&!ax.tg.items.length" class="text-mute text-sm">Chưa có tag nào.</div>
+   <div v-for="t in ax.tg.items" :key="t.name" class="flex items-center gap-2 text-sm"><b class="flex-1">#{{ t.name }}</b><span class="text-xs text-mute">{{ t.count }} bài</span><button type="button" class="gh text-xs" @click="tgMerge(t)">Gộp</button><button type="button" class="gh text-xs" @click="tgDel(t)">Xóa</button></div></div>
+  <div class="card p-3 space-y-2"><b class="text-sm">Tác vụ dọn dẹp định kỳ</b>
+   <p class="text-xs text-mute">Tự chạy mỗi giờ khi server chạy thường (trên serverless hãy bấm chạy tay). Lần chạy gần nhất: {{ ax.cron.lastAll?ago(ax.cron.lastAll):'chưa có' }}</p>
+   <div v-if="ax.cron.busy&&!ax.cron.jobs.length" class="text-mute text-sm">Đang tải…</div>
+   <div v-for="j in ax.cron.jobs" :key="j.id" class="text-sm"><b>{{ j.name }}</b><span class="text-xs text-mute"> — {{ j.last?('lần cuối '+ago(j.last.at)+': '+j.last.result):'chưa chạy' }}</span></div>
+   <button type="button" class="btn btn-g text-sm" :disabled="ax.cron.busy" @click="cronRun">{{ ax.cron.busy?'Đang chạy…':'▶ Chạy ngay' }}</button></div>
+  <div class="card p-3 space-y-2"><b class="text-sm">Giao diện (theme)</b>
+   <p class="text-xs text-mute">Tắt theme nào thì thành viên không chọn được theme đó nữa. Theme mặc định dùng cho khách chưa đăng nhập.</p>
+   <div v-if="ax.thm.busy" class="text-mute text-sm">Đang tải…</div>
+   <label class="block text-sm"><span class="text-mute">Theme mặc định</span><select v-model="thAdm.def" class="ip mt-1 text-sm"><option value="">— Mặc định hệ thống —</option><option v-for="t in TH" :key="t.id" :value="t.id">{{ t.n }}</option></select></label>
+   <div v-for="t in TH" :key="t.id" class="flex items-center gap-2 text-sm"><span class="block w-10 h-6 rounded border border-line" :style="swStyle(t)"></span><b class="flex-1">{{ t.n }}</b><button type="button" class="btn !py-1 text-xs" :class="thAdm.disabled.includes(t.id)?'!bg-transparent border border-line':'btn-g'" @click="thmToggle(t.id)">{{ thAdm.disabled.includes(t.id)?'Đã tắt — bật lại':'Đang bật — tắt' }}</button></div>
+   <button type="button" class="btn btn-g text-sm" :disabled="ax.thm.busy" @click="thmSave">Lưu</button></div>
+ </template>
+ <!-- ===== Nhóm quyền ===== -->
+ <template v-if="adm.tab==='grp'">
+  <div class="card p-3 space-y-2"><b class="text-sm">Thêm nhóm quyền</b>
+   <input v-model="ax.gr.name" class="ip text-sm" maxlength="50" placeholder="Tên nhóm (vd: Điều hành viên)" aria-label="Tên nhóm">
+   <div class="flex gap-2 flex-wrap"><label v-for="p in ax.gr.permKeys" :key="p.key" class="text-sm flex items-center gap-1"><input type="checkbox" v-model="ax.gr.perms[p.key]"> {{ p.label }}</label></div>
+   <button type="button" class="btn btn-g" @click="grAdd">Thêm nhóm</button></div>
+  <p v-if="adm.err" class="text-sm" style="color:#d64545" role="alert">{{ adm.err }}</p>
+  <div v-if="ax.gr.busy&&!ax.gr.groups.length" class="text-mute">Đang tải…</div>
+  <div v-for="g in ax.gr.groups" :key="g.id" class="card p-3 space-y-2">
+   <div class="flex gap-2"><input v-model="g.name" class="ip flex-1 text-sm" maxlength="50" aria-label="Tên nhóm"><button type="button" class="btn !h-8 text-sm btn-g" @click="grSave(g)">Lưu</button><button type="button" class="btn !h-8 text-sm !bg-transparent !text-[#d64545] border border-line" @click="grDel(g)">Xóa</button></div>
+   <div class="flex gap-2 flex-wrap"><label v-for="p in ax.gr.permKeys" :key="p.key" class="text-sm flex items-center gap-1"><input type="checkbox" v-model="g.perms[p.key]"> {{ p.label }}</label></div>
+  </div>
+ </template>
+ <!-- ===== Chủ đề nóng (admin) ===== -->
+ <template v-if="adm.tab==='topics'">
+  <div class="card p-3 space-y-2"><b class="text-sm">Tạo chủ đề mới</b>
+   <input v-model="ax.tp.title" class="ip text-sm" maxlength="60" placeholder="Tên chủ đề…" aria-label="Tên chủ đề">
+   <textarea v-model="ax.tp.desc" class="ip text-sm" rows="2" maxlength="300" placeholder="Mô tả (tùy chọn)…" aria-label="Mô tả"></textarea>
+   <label class="text-sm flex items-center gap-1"><input type="checkbox" v-model="ax.tp.hot"> 🔥 Đánh dấu nổi bật</label>
+   <button type="button" class="btn btn-g text-sm" @click="tpAdd">Tạo chủ đề</button></div>
+  <p v-if="adm.err" class="text-sm" style="color:#d64545" role="alert">{{ adm.err }}</p>
+  <div v-if="ax.tp.busy&&!ax.tp.items.length" class="text-mute">Đang tải…</div>
+  <div v-for="t in ax.tp.items" :key="t.id" class="card p-3 space-y-2">
+   <template v-if="ax.tp.editId===t.id">
+    <input v-model="ax.tp.etitle" class="ip text-sm" maxlength="60" aria-label="Tên chủ đề">
+    <textarea v-model="ax.tp.edesc" class="ip text-sm" rows="2" maxlength="300" aria-label="Mô tả"></textarea>
+    <div class="flex gap-3 flex-wrap text-sm"><label class="flex items-center gap-1"><input type="checkbox" v-model="ax.tp.ehot"> 🔥 Nổi bật</label><label class="flex items-center gap-1"><input type="checkbox" v-model="ax.tp.eclosed"> 🚫 Đóng</label></div>
+    <div class="flex gap-2"><button type="button" class="btn btn-g !h-8 text-sm" @click="tpSave(t)">Lưu</button><button type="button" class="btn !h-8 text-sm !bg-transparent border border-line" @click="ax.tp.editId=''">Hủy</button></div>
+   </template>
+   <template v-else>
+    <div class="flex items-center gap-2"><b class="flex-1 text-sm break-words"><span v-if="t.hot">🔥 </span>{{ t.title }}<span v-if="t.closed" class="text-mute"> (đã đóng)</span></b><span class="text-xs text-mute">{{ t.joinNum }} tham gia</span></div>
+    <div v-if="t.desc" class="text-sm text-mute break-words">{{ t.desc }}</div>
+    <div class="flex gap-2"><button type="button" class="gh text-xs" @click="tpEdit(t)">Sửa</button><button type="button" class="gh text-xs" @click="tpDel(t)">Xóa</button></div>
+   </template>
+  </div>
+  <div v-if="ax.tp.pages>1" class="flex items-center justify-between text-sm"><button type="button" class="btn !h-8 !bg-transparent border border-line" :disabled="ax.tp.busy||ax.tp.page<=1" @click="tpLoad(ax.tp.page-1)">‹ Trước</button><span class="text-mute">Trang {{ ax.tp.page }}/{{ ax.tp.pages }}</span><button type="button" class="btn !h-8 !bg-transparent border border-line" :disabled="ax.tp.busy||ax.tp.page>=ax.tp.pages" @click="tpLoad(ax.tp.page+1)">Sau ›</button></div>
+ </template>
+ <!-- ===== Đạo cụ (admin) ===== -->
+ <template v-if="adm.tab==='magic'">
+  <p v-if="adm.err" class="text-sm" style="color:#d64545" role="alert">{{ adm.err }}</p>
+  <div v-if="ax.mg.busy&&!ax.mg.items.length" class="text-mute">Đang tải…</div>
+  <div v-for="m in ax.mg.items" :key="m.mid" class="card p-3 flex items-center gap-3">
+   <span class="text-3xl">{{ m.icon }}</span>
+   <div class="flex-1 min-w-0"><b class="text-sm">{{ m.name }}</b><div class="text-xs text-mute break-words">{{ m.desc }}</div></div>
+   <label class="text-xs text-mute">Giá <input v-model.number="m.charge" type="number" min="0" max="10000" class="ip !w-20 text-sm" @change="mgSave(m)"></label>
+   <button type="button" class="btn !py-1 text-xs" :class="m.enabled?'btn-g':'!bg-transparent border border-line'" @click="mgToggle(m)">{{ m.enabled?'Đang bán':'Đã ẩn' }}</button>
+  </div>
+  <div class="card p-3 space-y-2"><div class="flex items-center gap-2"><b class="text-sm flex-1">Nhật ký sử dụng</b><button type="button" class="gh text-xs" @click="ax.mg.logTab=!ax.mg.logTab;if(ax.mg.logTab&&!ax.mg.logs.length)mgLog(1)">{{ ax.mg.logTab?'Ẩn':'Xem' }}</button></div>
+   <template v-if="ax.mg.logTab">
+    <div v-if="ax.mg.logBusy&&!ax.mg.logs.length" class="text-mute text-sm">Đang tải…</div>
+    <div v-for="(l,i) in ax.mg.logs" :key="i" class="text-sm"><b>{{ l.user?l.user.name:'?' }}</b> {{ {buy:'mua',use:'dùng',gift:'tặng',recv:'được tặng'}[l.action] }} <b>{{ l.mid }}</b><span v-if="l.target"> → {{ l.target }}</span><div class="text-xs text-mute">{{ l.detail }} · {{ ago(l.at) }}</div></div>
+    <div v-if="ax.mg.logTotal>20" class="flex items-center justify-between text-sm"><button type="button" class="btn !h-8 !bg-transparent border border-line" :disabled="ax.mg.logBusy||ax.mg.logPg<=1" @click="mgLog(ax.mg.logPg-1)">‹ Trước</button><span class="text-mute">Trang {{ ax.mg.logPg }}/{{ Math.ceil(ax.mg.logTotal/20) }}</span><button type="button" class="btn !h-8 !bg-transparent border border-line" :disabled="ax.mg.logBusy||ax.mg.logPg>=Math.ceil(ax.mg.logTotal/20)" @click="mgLog(ax.mg.logPg+1)">Sau ›</button></div>
+   </template></div>
+ </template>
+ <!-- ===== Danh mục phpFox parity ===== -->
+ <template v-if="adm.tab==='pfx'">
+  <p v-if="pfx.err" class="text-sm" style="color:#d64545" role="alert">{{ pfx.err }}</p>
+  <div class="flex gap-1 flex-wrap">
+   <button v-for="s in [['forum','Diễn đàn'],['music','Thể loại nhạc'],['video','Chuyên mục video'],['page','Chuyên mục trang'],['gift','Quà tặng'],['link','Chuyên mục link'],['annc','Thông báo chung'],['news','Newsletter'],['faq','Trợ giúp'],['contact','Liên hệ']]" :key="s[0]" type="button" class="btn !py-1 text-sm" :class="pfx.sec===s[0]?'btn-g':'!bg-transparent border border-line'" @click="pfxLoad(s[0])">{{ s[1] }}</button>
+  </div>
+  <div v-if="pfx.busy" class="text-mute text-sm">Đang tải…</div>
+  <template v-if="pfx.sec==='forum'">
+   <div class="card p-3 space-y-2"><b class="text-sm">Chuyên mục diễn đàn</b>
+    <div v-for="c in pfx.forumCats" :key="c.id" class="flex items-center gap-2 text-sm"><span class="flex-1">📁 {{ c.name }}</span><button class="gh !text-xs" @click="pfxDel('/admin/forum-cats',c.id,'forum')">Xóa</button></div>
+    <div class="flex gap-2"><input v-model="pfx.fcName" class="ip flex-1 text-sm" maxlength="60" placeholder="Tên chuyên mục mới" aria-label="Tên chuyên mục"><button class="btn btn-g !h-9 text-sm" :disabled="pfx.busy" @click="pfxAdd.forumCat">Thêm</button></div>
+   </div>
+   <div class="card p-3 space-y-2"><b class="text-sm">Box diễn đàn</b>
+    <div v-for="f in pfx.forums" :key="f.id" class="flex items-center gap-2 text-sm"><span class="flex-1 min-w-0"><b>{{ f.name }}</b> <span class="text-xs text-mute">({{ f.cat||'—' }} · {{ f.threadNum }} chủ đề)</span><span v-if="f.closed" class="text-xs" style="color:#d64545"> · đã đóng</span></span>
+     <button class="gh !text-xs" @click="forumToggle(f)">{{ f.closed?'Mở':'Đóng' }}</button><button class="gh !text-xs !text-[#d64545]" @click="pfxDel('/admin/forums',f.id,'forum')">Xóa</button></div>
+    <div class="grid gap-2 min-[520px]:grid-cols-2">
+     <input v-model="pfx.fName" class="ip text-sm" maxlength="80" placeholder="Tên box mới" aria-label="Tên box">
+     <select v-model="pfx.fCat" class="ip text-sm" aria-label="Chuyên mục"><option value="">— Chuyên mục —</option><option v-for="c in pfx.forumCats" :key="c.id" :value="c.id">{{ c.name }}</option></select>
+    </div>
+    <input v-model="pfx.fDesc" class="ip text-sm" maxlength="500" placeholder="Mô tả box (không bắt buộc)" aria-label="Mô tả">
+    <button class="btn btn-g !h-9 text-sm" :disabled="pfx.busy" @click="forumAdd">Thêm box</button>
+    <p class="text-xs text-mute">Gán mod từng box: Quản trị → Kiểm duyệt hiện chưa có UI gán mod — dùng API PATCH /admin/forums/:id {moderators:[userId]}.</p>
+   </div>
+  </template>
+  <template v-else-if="pfx.sec==='music'">
+   <div class="card p-3 space-y-2"><b class="text-sm">Thể loại nhạc</b>
+    <div v-for="g in pfx.musicGenres" :key="g.id" class="flex items-center gap-2 text-sm"><span class="flex-1">🎵 {{ g.name }}</span><button class="gh !text-xs" @click="pfxDel('/admin/music-genres',g.id,'music')">Xóa</button></div>
+    <div class="flex gap-2"><input v-model="pfx.mgName" class="ip flex-1 text-sm" maxlength="40" placeholder="Thể loại mới" aria-label="Thể loại"><button class="btn btn-g !h-9 text-sm" :disabled="pfx.busy" @click="pfxAdd.musicGenre">Thêm</button></div>
+   </div>
+  </template>
+  <template v-else-if="pfx.sec==='video'">
+   <div class="card p-3 space-y-2"><b class="text-sm">Chuyên mục video</b>
+    <div v-for="c in pfx.videoCats" :key="c.id" class="flex items-center gap-2 text-sm"><span class="flex-1">🎬 {{ c.name }}</span><button class="gh !text-xs" @click="pfxDel('/admin/video-cats',c.id,'video')">Xóa</button></div>
+    <div class="flex gap-2"><input v-model="pfx.vcName" class="ip flex-1 text-sm" maxlength="50" placeholder="Chuyên mục mới" aria-label="Chuyên mục"><button class="btn btn-g !h-9 text-sm" :disabled="pfx.busy" @click="pfxAdd.videoCat">Thêm</button></div>
+    <p class="text-xs text-mute">Đặt video nổi bật: mở video rồi dùng API PATCH /admin/videos/:id/featured {featured:true}.</p>
+   </div>
+  </template>
+  <template v-else-if="pfx.sec==='page'">
+   <div class="card p-3 space-y-2"><b class="text-sm">Chuyên mục trang</b>
+    <div v-for="c in pfx.pageCats" :key="c.id" class="flex items-center gap-2 text-sm"><span class="flex-1">📄 {{ c.name }}</span><button class="gh !text-xs" @click="pfxDel('/admin/page-cats',c.id,'page')">Xóa</button></div>
+    <div class="flex gap-2"><input v-model="pfx.pcName" class="ip flex-1 text-sm" maxlength="50" placeholder="Chuyên mục mới" aria-label="Chuyên mục"><button class="btn btn-g !h-9 text-sm" :disabled="pfx.busy" @click="pfxAdd.pageCat">Thêm</button></div>
+    <p class="text-xs text-mute">Duyệt trang xác thực: API PATCH /admin/pages/:id/verify {verified:true}.</p>
+   </div>
+  </template>
+  <template v-else-if="pfx.sec==='gift'">
+   <div class="card p-3 space-y-2"><b class="text-sm">Chuyên mục quà</b>
+    <div v-for="c in pfx.giftCats" :key="c.id" class="flex items-center gap-2 text-sm"><span class="flex-1">🎁 {{ c.name }}</span><button class="gh !text-xs" @click="pfxDel('/admin/gift-cats',c.id,'gift')">Xóa</button></div>
+    <div class="flex gap-2"><input v-model="pfx.gcName" class="ip flex-1 text-sm" maxlength="50" placeholder="Chuyên mục mới" aria-label="Chuyên mục"><button class="btn btn-g !h-9 text-sm" :disabled="pfx.busy" @click="pfxAdd.giftCat">Thêm</button></div>
+   </div>
+   <div class="card p-3 space-y-2"><b class="text-sm">Catalog quà tặng</b>
+    <div v-for="g in pfx.gifts" :key="g.id" class="flex items-center gap-2 text-sm"><span class="text-2xl">{{ g.icon }}</span><span class="flex-1 min-w-0"><b>{{ g.name }}</b> <span class="text-xs text-mute">({{ g.cat||'—' }})</span><span v-if="!g.enabled" class="text-xs" style="color:#d64545"> · đã ẩn</span></span>
+     <button class="gh !text-xs" @click="giftToggle(g)">{{ g.enabled?'Ẩn':'Hiện' }}</button><button class="gh !text-xs !text-[#d64545]" @click="pfxDel('/admin/gifts',g.id,'gift')">Xóa</button></div>
+    <div class="grid gap-2 min-[520px]:grid-cols-3">
+     <input v-model="pfx.gName" class="ip text-sm" maxlength="60" placeholder="Tên quà" aria-label="Tên quà">
+     <input v-model="pfx.gIcon" class="ip text-sm" maxlength="20" placeholder="Icon 🎁" aria-label="Icon">
+     <select v-model="pfx.gCat" class="ip text-sm" aria-label="Chuyên mục"><option value="">— Chuyên mục —</option><option v-for="c in pfx.giftCats" :key="c.id" :value="c.id">{{ c.name }}</option></select>
+    </div>
+    <input v-model="pfx.gDesc" class="ip text-sm" maxlength="200" placeholder="Mô tả (không bắt buộc)" aria-label="Mô tả">
+    <button class="btn btn-g !h-9 text-sm" :disabled="pfx.busy" @click="giftAdd">Thêm quà</button>
+   </div>
+  </template>
+  <template v-else-if="pfx.sec==='link'">
+   <div class="card p-3 space-y-2"><b class="text-sm">Chuyên mục liên kết</b>
+    <div v-for="c in pfx.linkCats" :key="c.id" class="flex items-center gap-2 text-sm"><span class="flex-1">🔗 {{ c.name }}</span><button class="gh !text-xs" @click="pfxDel('/admin/link-cats',c.id,'link')">Xóa</button></div>
+    <div class="flex gap-2"><input v-model="pfx.lcName" class="ip flex-1 text-sm" maxlength="50" placeholder="Chuyên mục mới" aria-label="Chuyên mục"><button class="btn btn-g !h-9 text-sm" :disabled="pfx.busy" @click="pfxAdd.linkCat">Thêm</button></div>
+   </div>
+  </template>
+  <template v-else-if="pfx.sec==='annc'">
+   <div class="card p-3 space-y-2"><b class="text-sm">Thông báo chung (hiện đầu trang mọi người)</b>
+    <div v-for="a in pfx.anncs" :key="a.id" class="flex items-center gap-2 text-sm"><span class="flex-1 min-w-0"><b>{{ a.title }}</b><span v-if="!a.active" class="text-xs" style="color:#d64545"> · đã tắt</span></span>
+     <button class="gh !text-xs" @click="anncToggle(a)">{{ a.active?'Tắt':'Bật' }}</button><button class="gh !text-xs !text-[#d64545]" @click="pfxDel('/admin/announcements',a.id,'annc')">Xóa</button></div>
+    <input v-model="pfx.anTitle" class="ip text-sm" maxlength="120" placeholder="Tiêu đề thông báo" aria-label="Tiêu đề">
+    <textarea v-model="pfx.anText" class="ip text-sm" rows="3" maxlength="2000" placeholder="Nội dung…" aria-label="Nội dung"></textarea>
+    <button class="btn btn-g !h-9 text-sm" :disabled="pfx.busy" @click="anncAdd">Đăng thông báo</button>
+   </div>
+  </template>
+  <template v-else-if="pfx.sec==='news'">
+   <div class="card p-3 space-y-2"><b class="text-sm">Newsletter (gửi email hàng loạt)</b>
+    <div v-for="n in pfx.news" :key="n.id" class="flex items-center gap-2 text-sm"><span class="flex-1 min-w-0"><b>{{ n.subject }}</b><span class="text-xs text-mute"> · {{ n.sentAt?('đã gửi '+n.sentNum+' người'):'nháp' }}</span></span>
+     <button v-if="!n.sentAt" class="btn btn-g !h-8 text-sm" @click="newsSend(n)">📧 Gửi</button><button class="gh !text-xs !text-[#d64545]" @click="pfxDel('/admin/newsletters',n.id,'news')">Xóa</button></div>
+    <input v-model="pfx.nwSub" class="ip text-sm" maxlength="150" placeholder="Tiêu đề email" aria-label="Tiêu đề">
+    <textarea v-model="pfx.nwText" class="ip text-sm" rows="4" maxlength="10000" placeholder="Nội dung email…" aria-label="Nội dung"></textarea>
+    <button class="btn btn-g !h-9 text-sm" :disabled="pfx.busy" @click="newsAdd">Lưu nháp</button>
+   </div>
+  </template>
+  <template v-else-if="pfx.sec==='faq'">
+   <div class="card p-3 space-y-2"><b class="text-sm">Câu hỏi thường gặp</b>
+    <div v-for="f in pfx.faqs" :key="f.id" class="flex items-center gap-2 text-sm"><span class="flex-1 min-w-0"><b>{{ f.question }}</b></span><button class="gh !text-xs !text-[#d64545]" @click="pfxDel('/admin/faqs',f.id,'faq')">Xóa</button></div>
+    <input v-model="pfx.fqQ" class="ip text-sm" maxlength="200" placeholder="Câu hỏi" aria-label="Câu hỏi">
+    <textarea v-model="pfx.fqA" class="ip text-sm" rows="3" maxlength="5000" placeholder="Trả lời…" aria-label="Trả lời"></textarea>
+    <button class="btn btn-g !h-9 text-sm" :disabled="pfx.busy" @click="faqAdd">Thêm</button>
+   </div>
+  </template>
+  <template v-else-if="pfx.sec==='contact'">
+   <div class="card p-3 space-y-2"><b class="text-sm">Hộp thư liên hệ</b>
+    <div v-if="!pfx.contact.length" class="text-sm text-mute">Chưa có liên hệ nào.</div>
+    <button v-for="m in pfx.contact" :key="m.id" class="uc-row w-full text-left block" @click="contactView(m)">
+     <b class="text-sm break-words">{{ m.subject }}<span v-if="!m.read" class="ml-1 px-1 rounded text-xs" style="background:#3a6fd8;color:#fff">mới</span></b>
+     <span class="block text-xs text-mute mt-0.5">{{ m.name }} · {{ m.email }}</span>
+    </button>
+    <div v-if="pfx.cDet" class="card p-3 space-y-1" style="background:var(--soft)">
+     <b class="text-sm">{{ pfx.cDet.subject }}</b><div class="text-xs text-mute">{{ pfx.cDet.name }} · {{ pfx.cDet.email }}</div>
+     <p class="text-sm whitespace-pre-wrap break-words">{{ pfx.cDet.text }}</p>
+     <button class="gh !text-xs !text-[#d64545]" @click="pfxDel('/admin/contact',pfx.cDet.id,'contact');pfx.cDet=null">Xóa liên hệ này</button>
+    </div>
+   </div>
+  </template>
+ </template>
+</section>
+
+<!-- ===== THÔNG BÁO (notification/controller/index) ===== -->
+<section v-else-if="view==='notifications'" class="space-y-3">
+ <h2 class="title"><img src="/img/uch/app/event.gif" alt="">Thông báo</h2>
+ <div v-if="np.busy&&!np.items.length" class="text-mute">Đang tải…</div>
+ <p v-if="np.err" class="text-sm" style="color:#d64545" role="alert">{{ np.err }}</p>
+ <div v-if="np.items.length">
+  <ul class="notification_holder">
+   <template v-for="g in npGroups" :key="g.label">
+    <li class="notification_date">{{ g.label }}</li>
+    <li v-for="it in g.items" :key="it.id" :class="{is_new:!it.seen}">
+     <a href="#" @click.prevent="ntGo(it)" :aria-label="'Mở thông báo của '+it.who"><c-av :name="it.actor.name" :src="it.actor.avatar" :size="40"></c-av></a>
+     <span class="nt-tx"><a href="#" @click.prevent="ntGo(it)"><b>{{ it.who }}</b> {{ it.msg }}<template v-if="it.title"> “{{ it.title }}”</template></a> <span class="gray">{{ it.icon }} {{ ago(it.at) }}</span></span>
+     <span class="notification_delete"><a href="#" :title="'Xóa thông báo này'" @click.prevent="ntDel(it)">✕ Xóa</a></span>
+    </li>
+   </template>
+  </ul>
+  <div v-if="np.page<np.pages" class="mb-3"><button class="btn !bg-transparent" :disabled="np.busy" @click="ntPage(np.page+1)">{{ np.busy?'Đang tải…':'Xem thêm' }}</button></div>
+  <button class="btn" @click="ntClear">Xóa tất cả thông báo</button>
+ </div>
+ <div v-else-if="!np.busy">
+  <p class="gray">Không có thông báo mới.</p><br>
+  <button class="btn !bg-transparent" @click="ntClear(true)">Đặt lại số đếm thông báo</button>
+ </div>
+</section>
+
+<section v-else-if="view==='profile'" :class="{tw:themed}">
+ <div class="fb-cover relative" :class="{'has-cover':!!acct.cover&&!cv.imgErr}" :style="(!acct.cover||cv.imgErr)?cover:{}" style="background:linear-gradient(135deg,#16181c,#4b4f57 60%,#dfe1e6)" ref="cvBox">
+  <img v-if="acct.cover&&!cv.imgErr" :src="acct.cover" class="absolute inset-0 w-full h-full" :style="{objectFit:'cover',objectPosition:(cv.repos?cv.tx+'% '+cv.ty+'%':(acct.coverPos||'50% 50%'))}" :class="cv.repos?'cursor-move':'cursor-zoom-in'" alt="" draggable="false" @error="cv.imgErr=true" @pointerdown="cvReposDown" @pointermove="cvReposMove" @pointerup="cvReposUp" @pointercancel="cvReposUp" @click="cv.repos||openPv('cover')">
+  <template v-if="!cv.repos">
+   <label class="fb-cvcam" :class="{'opacity-60 pointer-events-none':cv.busy}" :title="cv.busy?'Đang tải…':'Đổi ảnh bìa'" aria-label="Đổi ảnh bìa">📷<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" class="hidden" :disabled="cv.busy" @change="pickCv"></label>
+   <button v-if="acct.cover&&!cv.imgErr" class="fb-cvrm" style="right:12px" :disabled="cv.busy" @click="cvReposStart" title="Căn chỉnh ảnh bìa" aria-label="Căn chỉnh ảnh bìa">⤢</button>
+  </template>
+  <div v-else class="absolute inset-x-0 bottom-2 z-10 flex items-center justify-center gap-2">
+   <span class="text-xs px-2 py-1 rounded" style="background:rgba(0,0,0,.55);color:#fff">Kéo ảnh để căn chỉnh</span>
+   <button class="btn !py-1 text-xs" @click="cvReposSave" :disabled="cv.busy">{{ cv.busy?'Đang lưu…':'Lưu' }}</button>
+   <button class="btn !py-1 text-xs !bg-transparent" @click="cv.repos=false">Hủy</button>
+  </div>
+ </div>
+ <p v-if="cv.err" class="text-sm px-4 pt-1" style="color:#d64545" role="alert">{{ cv.err }}</p>
+ <p v-if="cv.imgErr&&acct.cover" class="text-sm px-4 pt-1" style="color:#d64545" role="alert">Ảnh bìa bị lỗi không hiển thị được. Hãy thử up lại ảnh khác.</p>
+ <div class="fb-head">
+  <div class="fb-av"><c-av :name="me" :src="acct.avatar" :size="150" @click="acct.avatar&&openPv('avatar')" :class="acct.avatar?'cursor-zoom-in':''"></c-av>
+   <label class="fb-avcam" :class="{'opacity-60 pointer-events-none':av.busy}" title="Đổi ảnh đại diện" aria-label="Đổi ảnh đại diện">📷<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" class="hidden" :disabled="av.busy" @change="pickAv"></label>
+  </div>
+  <div class="fb-id">
+   <h2 class="fb-name"><span :class="fxCls(acct.fx)">{{ fxIcon(acct.fx) }}{{ me }}</span> <c-tick :on="acct.blueTick" :size="18"></c-tick></h2>
+   <p v-if="acct.username" class="fb-sub">Tên đăng nhập: {{ acct.username }}</p>
+   <p class="fb-sub">{{ F.length }} bạn · Tham gia {{ fmtDate(acct.joined) }}</p>
+   <p v-if="acct.location" class="fb-sub">📍 {{ acct.location }}</p>
+   <p v-if="acct.bio" class="fb-bio">{{ acct.bio }}</p>
+   <div class="fb-actions">
+    <a v-if="acct.avatar" href="#" class="gh" @click.prevent="rmAv">Gỡ ảnh đại diện</a>
+   </div>
+   <p v-if="av.err" class="text-sm mt-2" style="color:#d64545" role="alert">{{ av.err }}</p>
+  </div>
+ </div>
+ <div id="space_page">
+  <div id="ubar">
+   <div class="borderbox"><ul class="spacemenu_list">
+    <li><a href="#" @click.prevent="go('settings');tab='sp'">Cài đặt</a></li>
+    <li><a href="#" @click.prevent="openTheme">Giao diện</a></li>
+    <li><a href="#" @click.prevent="go('settings');tab='ssec'">Bảo mật</a></li>
+    <li><a href="#" @click.prevent="logout">Thoát</a></li>
+   </ul></div><br>
+   <div id="space_mymenu">
+    <h2 class="ubar_t">My Stuff</h2>
+    <ul class="line_list">
+     <li v-for="t in TB" :key="t[0]"><a v-if="t[0]==='nk'" href="#" class="r_option" @click.prevent="go('home');$refs.st&&$refs.st.focus()">Viết</a><a v-else-if="t[0]==='bl'" href="#" class="r_option" @click.prevent="tab='bl'">Viết</a><a v-else-if="t[0]==='gt'" href="#" class="r_option" @click.prevent="go('settings');tab='sp'">Sửa</a><a v-else-if="t[0]==='bb'" href="#" class="r_option" @click.prevent="tab='bb'">Tìm bạn</a>
+      <img :src="'/img/uch/icon/'+({nk:'blog',bl:'blog',gt:'profile',bb:'friend',al:'album',ch:'poke',lb:'wall'})[t[0]]+'.gif'" alt=""><a href="#" :class="{'font-bold':tab===t[0]}" @click.prevent="tab=t[0]">{{ t[1].slice(t[1].indexOf(' ')+1) }}</a><em v-if="(t[0]==='bb'&&F.length)||(t[0]==='ch'&&pk.list.length)"> ({{ t[0]==='ch'?pk.list.length:F.length }})</em></li>
+    </ul>
+   </div>
+  </div>
+  <div id="content">
+   <nav class="tabs_header uc-mtabs"><button v-for="t in TB" :key="t[0]" class="uc-tab" :class="{on:tab===t[0]}" @click="tab=t[0]"><span>{{ t[1] }}<small v-if="(t[0]==='bb'&&F.length)||(t[0]==='ch'&&pk.list.length)"> {{ t[0]==='ch'?pk.list.length:F.length }}</small></span></button></nav>
+  <div class="space-y-3">
+  <div v-if="tab==='nk'">
+    <div class="borderbox post_doing mb-4">
+     <textarea ref="st" v-mention v-model="draft" rows="3" class="ip resize-none" :placeholder="'Hôm nay bạn thế nào, '+me.split(' ').pop()+'?'"></textarea>
+     <c-attach :att="att"></c-attach>
+     <div class="flex items-center gap-2 mt-2"><button type="button" class="gh" @click="checkIn" :title="att.loc&&att.loc.name?('Đã check-in: '+att.loc.name):'Check-in vị trí hiện tại'">📍 {{ att.loc?(att.loc.busy?'Đang lấy vị trí…':(att.loc.name||'Vị trí')):'Check-in' }}</button><button v-if="att.loc&&att.loc.name" type="button" class="gh" @click="att.loc=null" title="Xóa check-in">✕</button><select v-model="vis" class="ml-auto" aria-label="Ai xem được bài này"><option value="public">Công khai</option><option value="friends">Bạn bè</option><option value="private">Chỉ mình tôi</option></select><button class="btn" @click="pub">Đăng</button></div>
+    </div>
+    <div id="space_info" class="mb-4">
+     <h3 class="feed_header"><a href="#" class="r_option" @click.prevent="go('settings');tab='sp'">Sửa hồ sơ</a>Thông tin cá nhân</h3>
+     <ul class="spacemenu_list"><li v-for="r in info" :key="r">{{ r }}</li></ul>
+    </div>
+    <div class="feed">
+     <h3 class="feed_header">Bài viết</h3>
+     <c-feed zl :bd="acct.birthday" :groups="mineFeed" :more="more.mine" :busy="busyM" :first="first" @more="loadMore('mine')" @del="del">Nhật ký của bạn còn trống. Hãy đăng bài đầu tiên nhé! 📓</c-feed>
+    </div>
+  </div>
+  <div v-else-if="tab==='gt'"><h3 class="feed_header"><a href="#" class="r_option" @click.prevent="go('settings');tab='sp'">Sửa hồ sơ</a>Thông tin cá nhân</h3><ul class="spacemenu_list"><li v-for="r in info" :key="r">{{ r }}</li></ul><p class="mt-3"><button class="btn" @click="go('settings');tab='sp'">Cập nhật thông tin</button></p></div>
+  <div v-else-if="tab==='bb'" class="space-y-3">
+    <h3 class="feed_header">Bạn bè</h3>
+    <nav class="flex gap-1 flex-wrap" aria-label="Mục bạn bè"><button v-for="x in [['list','👥 Danh sách'],['find','✨ Gợi ý'],['visitors','👀 Khách ghé thăm'],['trace','👣 Dấu chân'],['invite','✉️ Mời bạn']]" :key="x[0]" class="gh" :class="{'font-bold underline':fx.sub===x[0]}" @click="fxSub(x[0])">{{ x[1] }}<b v-if="x[0]==='visitors'&&fx.visitorNew" class="ml-1 px-1.5 rounded-full text-white text-xs" style="background:#d64545">{{ fx.visitorNew }}</b></button></nav>
+    <div v-if="fx.err" class="card p-3 text-sm" style="color:#d64545" role="alert">{{ fx.err }}</div>
+    <template v-if="fx.sub==='list'">
+    <div class="card p-3"><input v-model="fsq" @input="onFind" class="ip text-sm" placeholder="Tìm người để kết bạn (tên hoặc tên đăng nhập)…">
+     <div v-for="u in found" :key="u.id" class="mi"><button class="flex items-center gap-2 flex-1 min-w-0 text-left" @click="openUser(u.id)"><c-av :name="u.name" :src="u.avatar" :size="36"></c-av><div class="flex-1 min-w-0"><div class="truncate font-semibold">{{ u.name }}</div><div class="text-xs text-mute">@{{ u.username }}</div></div></button>
+      <button v-if="u.rel==='none'" class="btn !h-8" @click="reqF(u.id)">Kết bạn</button>
+      <button v-else-if="u.rel==='received'" class="btn btn-g !h-8" @click="accF(u.id)">Chấp nhận</button>
+      <button v-else-if="u.rel==='sent'" class="btn !h-8 !bg-transparent !text-mute border border-line" @click="delF(u.id)">Hủy lời mời</button>
+      <span v-else class="text-xs font-semibold text-zg">Bạn bè ✓</span></div>
+     <div v-if="fsq.trim().length>=2&&!found.length" class="text-sm text-mute p-2">Không tìm thấy ai khớp “{{ fsq }}”.</div></div>
+    <div v-if="fr.incoming.length" class="card p-3"><div class="font-bold mb-1">Lời mời kết bạn · {{ fr.incoming.length }}</div>
+     <div v-for="u in fr.incoming" :key="u.id" class="mi"><button class="flex items-center gap-2 flex-1 min-w-0 text-left" @click="openUser(u.id)"><c-av :name="u.name" :src="u.avatar" :size="36"></c-av><b class="flex-1 truncate">{{ u.name }}</b></button><button class="btn btn-g !h-8" @click="accF(u.id)">Chấp nhận</button><button class="btn !h-8 !bg-transparent !text-mute border border-line" @click="delF(u.id)">Từ chối</button></div></div>
+    <div class="card p-3">
+     <div class="flex items-center gap-2 flex-wrap mb-2"><div class="font-bold">Bạn bè · {{ F.length }}</div><button v-if="F.length" class="gh ml-auto" @click="fxRandom">🎲 Ngẫu nhiên</button><button v-if="F.length" class="gh" @click="fx.org=!fx.org;fx.sel=[]">{{ fx.org?'Xong':'🗂️ Sắp xếp' }}</button></div>
+     <div v-if="!F.length" class="text-sm text-mute">Chưa có bạn nào. Hãy tìm và kết bạn ở ô phía trên, hoặc xem mục “Gợi ý”.</div>
+     <template v-else>
+      <div class="flex gap-1.5 flex-wrap mb-2"><button class="gh !py-1 text-sm" :class="{'font-bold underline':fx.g===-1}" @click="fx.g=-1">Tất cả ({{ F.length }})</button><button v-for="(n,i) in fx.names" :key="i" v-show="fxCount[i]||fx.g===i" class="gh !py-1 text-sm" :class="{'font-bold underline':fx.g===i}" @click="fx.g=i">{{ n }} ({{ fxCount[i]||0 }})</button><button class="gh !py-1 text-sm" @click="fxRen">✏️ Đổi tên nhóm</button></div>
+      <div v-if="fx.msg" class="text-xs text-mute mb-2" role="status">{{ fx.msg }}</div>
+      <div v-if="fx.ren" class="border border-line rounded-md p-2 mb-3 space-y-1.5"><div class="text-sm font-semibold">Đặt tên cho 7 nhóm (để trống = tên mặc định, tối đa 20 ký tự)</div>
+       <div v-for="(n,i) in fx.rn" :key="i" class="flex items-center gap-2"><span class="text-xs text-mute w-5">{{ i+1 }}</span><input v-model="fx.rn[i]" maxlength="20" class="ip !py-1 text-sm" :placeholder="fx.names[i+1]" :aria-label="'Tên nhóm '+(i+1)"></div>
+       <div class="flex gap-2"><button class="btn !h-8" @click="fxRenSave">Lưu</button><button class="gh" @click="fx.ren=false">Hủy</button></div></div>
+      <label v-if="fx.g>=0" class="flex items-center gap-2 text-sm mb-2"><input type="checkbox" :checked="fx.hidden.includes(fx.g)" @change="fxHide(fx.g)"> Ẩn bài của nhóm “{{ fx.names[fx.g] }}” khỏi bảng tin</label>
+      <div v-if="fx.org" class="flex gap-2 items-center flex-wrap mb-3 text-sm"><span>Đã chọn {{ fx.sel.length }}</span><button class="gh" @click="fx.sel=Fshow.map(x=>x.id)">Chọn tất cả</button><span class="ml-auto">Chuyển sang</span><select v-model.number="fx.moveTo" class="ip !w-auto !py-1" aria-label="Nhóm đích"><option v-for="(n,i) in fx.names" :key="i" :value="i">{{ n }}</option></select><button class="btn !h-8" :disabled="!fx.sel.length" @click="fxMove">Chuyển</button></div>
+      <div v-if="!Fshow.length" class="text-sm text-mute">Nhóm này chưa có ai.</div>
+      <div class="grid grid-cols-3 sm:grid-cols-4 gap-4"><div v-for="f in Fshow" :key="f.id" class="text-center text-sm min-w-0"><button class="relative" @click="fx.org?fxToggle(f.id):openUser(f.id)" :aria-label="fx.org?'Chọn '+f.n:'Xem trang cá nhân của '+f.n"><c-av :name="f.n" :src="f.a" :size="56"></c-av><b v-if="f.u" class="bd !right-[-6px] text-white">{{ f.u }}</b><span v-if="fx.org" class="absolute -top-1 -left-1 w-5 h-5 rounded-full bg-white border border-line text-xs leading-5">{{ fx.sel.includes(f.id)?'✔':'' }}</span></button><button class="block w-full mt-1 truncate font-semibold" @click="fx.org?fxToggle(f.id):openUser(f.id)">{{ f.n }}</button><template v-if="!fx.org"><select :value="f.g" class="block w-full text-xs bg-transparent border border-line rounded px-1 py-0.5 my-1" :aria-label="'Nhóm của '+f.n" @change="setG([f.id],+$event.target.value)"><option v-for="(n,i) in fx.names" :key="i" :value="i">{{ n }}</option></select><button class="text-xs text-zb2 mr-2" @click="openChat(f)">💬 Nhắn tin{{ f.u?' ('+f.u+')':'' }}</button><button class="text-xs text-mute underline" @click="delF(f.id,'Hủy kết bạn với '+f.n+'?')">Hủy kết bạn</button></template></div></div>
+     </template>
+    </div>
+    </template>
+    <template v-else-if="fx.sub==='find'">
+     <div class="card p-3 text-sm text-mute">Gợi ý dựa trên bạn chung và hoạt động gần đây. Muốn tìm đúng một người, dùng ô tìm kiếm ở mục “Danh sách”.</div>
+     <div v-if="fx.sug.busy" class="card p-3 text-sm text-mute">Đang tìm…</div>
+     <template v-else><div v-for="sec in sugSecs" :key="sec.t" class="card p-3"><div class="font-bold mb-2">{{ sec.t }}</div>
+      <div v-if="!sec.l.length" class="text-sm text-mute">{{ sec.e }}</div>
+      <div v-for="u in sec.l" :key="u.id" class="mi"><button class="flex items-center gap-2 flex-1 min-w-0 text-left" @click="openUser(u.id)"><c-av :name="u.name" :src="u.avatar" :size="36"></c-av><div class="flex-1 min-w-0"><div class="truncate font-semibold">{{ u.name }}</div><div class="text-xs text-mute">@{{ u.username }}<template v-if="u.mutual"> · {{ u.mutual }} bạn chung</template><template v-else-if="u.recent"> · hoạt động hôm nay</template></div></div></button>
+       <span v-if="u.sent" class="text-xs text-mute">Đã gửi lời mời</span><button v-else class="btn !h-8" @click="sugReq(u)">Kết bạn</button></div></div></template>
+    </template>
+    <template v-else-if="fx.sub==='visitors'||fx.sub==='trace'">
+     <div class="card p-3"><div class="font-bold">{{ fx.sub==='trace'?'👣 Những trang bạn đã ghé thăm':'👀 Những người đã ghé thăm trang của bạn' }} · {{ fxList.total }}</div><div class="text-xs text-mute mt-1">{{ fx.sub==='trace'?'Chỉ mình bạn thấy danh sách này. Người được ghé thăm cũng thấy tên bạn trong mục “Khách ghé thăm” của họ.':'Chỉ mình bạn thấy danh sách này. Lượt ghé được giữ 90 ngày; mở trang ai đó là họ sẽ thấy tên bạn.' }}</div></div>
+     <div v-if="fxList.busy" class="card p-3 text-sm text-mute">Đang tải…</div>
+     <div v-else-if="!fxList.items.length" class="card p-6 text-center text-mute">{{ fx.sub==='trace'?'Bạn chưa ghé trang của ai.':'Chưa có ai ghé thăm trang của bạn.' }}</div>
+     <div v-else class="card p-3"><div v-for="u in fxList.items" :key="u.id" class="mi"><button class="flex items-center gap-2 flex-1 min-w-0 text-left" @click="openUser(u.id)"><c-av :name="u.name" :src="u.avatar" :size="36"></c-av><div class="flex-1 min-w-0"><div class="truncate font-semibold">{{ u.name }}<b v-if="u.isNew" class="ml-1 px-1.5 rounded-full text-white text-xs" style="background:#d64545">Mới</b></div><div class="text-xs text-mute">@{{ u.username }} · {{ ago(u.at) }}</div></div></button>
+       <button v-if="u.rel==='none'" class="btn !h-8" @click="sugReq(u)">Kết bạn</button><span v-else-if="u.rel==='sent'" class="text-xs text-mute">Đã gửi lời mời</span><span v-else-if="u.rel==='friends'" class="text-xs font-semibold text-zg">Bạn bè ✓</span></div>
+      <div v-if="fxList.total>fxList.per" class="flex items-center gap-2 mt-2"><button class="gh" :disabled="fxList.page<=1" @click="fxPage(-1)">« Trước</button><span class="text-xs text-mute">Trang {{ fxList.page }} / {{ Math.ceil(fxList.total/fxList.per) }}</span><button class="gh" :disabled="fxList.page>=Math.ceil(fxList.total/fxList.per)" @click="fxPage(1)">Sau »</button></div></div>
+    </template>
+    <template v-else-if="fx.sub==='invite'">
+     <div class="card p-3"><div class="font-bold mb-1">✉️ Mời bạn bè vào CoolAir</div><div class="text-sm text-mute">Tạo mã mời rồi gửi liên kết cho người quen. Mỗi mã dùng được một lần; họ đăng ký xong và xác thực email là hai bên tự thành bạn bè. Tối đa {{ fx.iv.max }} mã chưa dùng.</div>
+      <div class="mt-2"><button class="btn" :disabled="fx.iv.busy" @click="newIv">＋ Tạo mã mời</button></div>
+      <div class="flex gap-2 mt-2"><input v-model="fx.iv.email" type="email" class="ip text-sm" maxlength="120" placeholder="Email người được mời…" aria-label="Email người được mời" @keyup.enter="sendIvEmail"><button class="btn btn-g text-sm" :disabled="fx.iv.busy" @click="sendIvEmail">📧 Gửi lời mời qua email</button></div>
+      <div v-if="fx.iv.err" class="text-sm mt-2" style="color:#d64545" role="alert">{{ fx.iv.err }}</div>
+      <div v-if="fx.iv.okMsg" class="text-sm mt-2 text-zg">{{ fx.iv.okMsg }}</div></div>
+     <div v-if="fx.iv.list.length" class="card p-3"><div v-for="i in fx.iv.list" :key="i.id" class="mi flex-wrap">
+       <div class="flex-1 min-w-0"><div class="font-mono text-sm truncate">{{ ivLink(i) }}</div><div class="text-xs text-mute"><template v-if="i.usedAt">Đã dùng {{ ago(i.usedAt) }}<template v-if="i.usedBy"> bởi {{ i.usedBy.name }}</template><template v-else> (tài khoản đã xóa)</template></template><template v-else>Chưa dùng · tạo {{ ago(i.createdAt) }}</template></div></div>
+       <template v-if="!i.usedAt"><button class="btn btn-g !h-8" @click="copyIv(i)">{{ fx.iv.copied===i.id?'Đã chép ✓':'Sao chép' }}</button><button class="gh" @click="delIv(i)" aria-label="Xóa mã mời">🗑️</button></template><button v-else-if="i.usedBy" class="gh" @click="openUser(i.usedBy.id)">Xem trang</button></div></div>
+     <div v-else-if="!fx.iv.busy" class="card p-6 text-center text-mute">Bạn chưa tạo mã mời nào.</div>
+    </template>
+   </div>
+  <div v-else-if="tab==='bl'"><h3 class="feed_header">Nhật ký</h3><c-blog :uid="uid" mine></c-blog></div>
+  <div v-else-if="tab==='al'"><h3 class="feed_header">Album</h3><c-album :uid="uid" mine :jump="nj" @jumped="nj=null"></c-album></div>
+  <div v-else-if="tab==='ch'" class="space-y-3">
+   <h3 class="feed_header">Chọc</h3>
+   <div class="card p-3 flex items-center gap-2 flex-wrap"><b>👋 Lời chọc mới · {{ pk.list.length }}</b><button v-if="pk.list.length" class="gh ml-auto" @click="ignorePoke()">Bỏ qua tất cả</button></div>
+   <div v-if="!pk.list.length" class="card p-6 text-center text-mute">Chưa có lời chọc nào. Vào trang cá nhân của một người và bấm “👋 Chọc” để chào họ nhé!</div>
+   <div v-for="p in pk.list" :key="p.id" class="card p-3 flex gap-3">
+    <button class="self-start" @click="openUser(p.id)" :aria-label="'Xem trang cá nhân của '+p.name"><c-av :name="p.name" :src="p.avatar" :size="44"></c-av></button>
+    <div class="flex-1 min-w-0">
+     <div><b>{{ p.name }}</b> <span class="text-xs text-mute">{{ ago(p.createdAt) }}</span></div>
+     <p class="mt-1 break-words"><img v-if="PK[p.icon][2]" :src="pkImg(PK[p.icon])" :alt="PK[p.icon][1]" class="pkg"><span v-else class="text-xl">{{ PK[p.icon][0] }}</span> {{ p.icon?PK[p.icon][1]:'Chào bạn' }}<template v-if="p.note"> — “{{ p.note }}”</template></p>
+     <div class="flex flex-wrap items-center gap-2 mt-2">
+      <button class="btn btn-g !h-8" @click="openPoke({id:p.id,n:p.name,a:p.avatar},true)">👋 Chọc lại</button>
+      <button v-if="p.rel==='none'||p.rel==='received'" class="btn !h-8" @click="pkFriend(p)">{{ p.rel==='none'?'Kết bạn':'Chấp nhận kết bạn' }}</button>
+      <span v-else-if="p.rel==='sent'" class="text-xs text-mute">Đã gửi lời mời kết bạn</span>
+      <button class="gh" @click="ignorePoke(p.id)">Bỏ qua</button>
+     </div>
+    </div>
+   </div>
+  </div>
+  <template v-else>
+   <h3 class="feed_header">Lưu bút</h3>
+   <div class="card p-3">
+    <textarea v-model="gbTxt" rows="2" class="ip resize-none" :placeholder="'Để lại lời nhắn cho '+me+'...'"></textarea>
+    <div class="flex items-center gap-1 mt-2">
+     <button v-for="g in gifts" :key="g" class="w-9 h-9 rounded-md text-xl border" :class="g===gift?'border-zg bg-bg':'border-line'" @click="gift=g">{{ g }}</button>
+     <button class="btn btn-g ml-auto" @click="sendGb">Gửi lưu bút</button>
+    </div>
+   </div>
+   <div v-for="(g,i) in gb" :key="i" class="card p-3 flex gap-3"><c-av :name="g[0]" :src="g[3]" :size="38"></c-av><div class="flex-1"><b>{{ g[0] }}</b><p class="text-sm mt-0.5">{{ g[2] }}</p></div><span class="text-3xl">{{ g[1] }}</span></div>
+  </template>
+  </div>
+  </div>
+  <div id="obar">
+   <div class="sidebox">
+    <h2 class="sbt2"><a href="#" class="r_option" @click.prevent="tab='bb'">Xem tất cả</a>Bạn bè ({{ F.length }})</h2>
+    <ul class="avatar_list"><li v-for="f in F.slice(0,8)" :key="f.id||f.n"><a href="#" @click.prevent="f.id&&openUser(f.id)"><c-av sq :name="f.n" :src="f.a" :size="48" :on="!!f.on"></c-av></a><p>{{ f.n }}</p></li></ul>
+    <p v-if="!F.length" class="gray p-2">Chưa có bạn nào.</p>
+   </div>
+  </div>
+ </div>
+</section>
+
+<!-- ===== HỒ SƠ NGƯỜI KHÁC ===== -->
+<section v-else-if="view==='user'" :class="{tw:themed}">
+ <div class="c_header a_header"><a href="#" class="r_option" @click.prevent="backFromUser">« Trang trước</a><p style="font-size:14px"><template v-if="pu.u">{{ pu.u.name }}</template></p></div>
+ <div v-if="pu.err" class="borderbox text-sm" style="color:#d64545" role="alert">{{ pu.err }}</div>
+ <div v-else-if="pu.u">
+  <div class="fb-cover relative" :class="{'has-cover':!!pu.u.cover}" style="background:linear-gradient(135deg,#1d4ed8,#6d28d9 55%,#be185d)">
+   <img v-if="pu.u.cover" :src="pu.u.cover" class="absolute inset-0 w-full h-full" :style="{objectFit:'cover',objectPosition:pu.u.coverPos||'50% 50%'}" alt="" draggable="false">
+  </div>
+  <div class="fb-head">
+   <div class="fb-av"><c-av :name="pu.u.name" :src="pu.u.avatar" :size="150" :fx="pu.u.fx" :on="pu.u.online"></c-av></div>
+   <div class="fb-id">
+    <h2 class="fb-name"><span :class="fxCls(pu.u.fx)">{{ fxIcon(pu.u.fx) }}{{ pu.u.name }}</span> <c-tick :on="pu.u.blueTick" :size="18"></c-tick></h2>
+    <p v-if="pu.u.username" class="fb-sub">Tên đăng nhập: {{ pu.u.username }}</p>
+    <p class="fb-sub">{{ pu.u.friendCount }} bạn · Tham gia {{ fmtDate(pu.u.joined) }}<span v-if="pu.u.mood"> · {{ pu.u.mood }}</span><span v-if="pu.u.level"> · 🏅 {{ pu.u.level }}</span></p>
+    <p v-if="pu.mutual.count" class="fb-sub">Bạn chung ({{ pu.mutual.count }}): <template v-for="(m,i) in pu.mutual.users.slice(0,8)" :key="m.id"><a href="#" @click.prevent="openUser(m.id)" class="underline">{{ m.name }}</a><template v-if="i<Math.min(pu.mutual.users.length,8)-1">, </template></template><template v-if="pu.mutual.count>8"> và {{ pu.mutual.count-8 }} người khác</template></p>
+    <div class="fb-actions">
+     <button v-if="pu.u.rel==='none'" class="btn btn-g !py-1.5 text-sm" @click="userAct('POST','/request')">＋ Kết bạn</button>
+     <button v-if="pu.u.rel==='received'" class="btn btn-g !py-1.5 text-sm" @click="userAct('POST','/accept')">✓ Chấp nhận</button>
+     <button v-if="pu.u.rel==='received'" class="btn !py-1.5 text-sm !bg-transparent border border-line" @click="userAct('DELETE')">Từ chối</button>
+     <button v-if="pu.u.rel==='sent'" class="btn !py-1.5 text-sm !bg-transparent border border-line" @click="userAct('DELETE')">Hủy lời mời</button>
+     <button v-if="pu.u.rel==='friends'" class="btn btn-g !py-1.5 text-sm" @click="openChat({id:pu.u.id,n:pu.u.name})">💬 Nhắn tin</button>
+     <button class="btn !py-1.5 text-sm !bg-transparent border border-line" @click="openPoke({id:pu.u.id,n:pu.u.name,a:pu.u.avatar})">👋 Chọc</button>
+     <button v-if="pu.u.rel==='friends'" class="btn !py-1.5 text-sm !bg-transparent border border-line" @click="userAct('DELETE','','Hủy kết bạn với '+pu.u.name+'?')">Hủy kết bạn</button>
+     <button v-if="!pu.blocked" class="gh text-sm" @click="blockU">Chặn</button>
+     <button v-else class="gh text-sm" @click="unblockU">Bỏ chặn</button>
+     <button class="gh text-sm" @click="reportU">Tố cáo</button>
+    </div>
+    <div v-if="pu.u.rel==='friends'" class="mt-2 text-sm"><span class="text-mute">Phân loại: </span><select :value="puG" class="ip !w-auto !py-0.5 text-sm" aria-label="Xếp bạn này vào nhóm" @change="setG([pu.u.id],+$event.target.value)"><option v-for="(n,i) in fx.names" :key="i" :value="i">{{ n }}</option></select></div>
+   </div>
+  </div>
+  <div id="space_page">
+   <div id="content" style="flex:1;min-width:0">
+   <div v-if="pu.u.rel==='none'" class="borderbox mb-4"><p class="pb-2"><b>Nếu bạn muốn hiểu rõ hơn về {{ pu.u.name }}, để có thể cùng nói chuyện, tâm sự chia sẻ về cuộc sống, hãy cùng kết bạn nhé</b></p><a href="#" class="submit" @click.prevent="userAct('POST','/request')">Kết bạn với {{ pu.u.name }}</a></div>
+   <div id="space_info" class="mb-4">
+    <h3 class="feed_header">Thông tin cá nhân</h3>
+    <ul class="spacemenu_list">
+     <li><em>Tham gia từ:</em>{{ fmtDate(pu.u.joined) }}</li>
+     <li v-if="pu.u.birthday"><em>Sinh nhật:</em>{{ fmtBirth(pu.u.birthday) }}</li>
+     <li v-for="x in pu.u.extra" :key="x.id"><em>{{ x.title }}:</em>{{ x.value }}</li>
+    </ul>
+   </div>
+   <div class="feed">
+    <h3 class="feed_header">Bài viết</h3>
+    <c-feed zl :bd="(pu.u&&pu.u.birthday)||''" :groups="puFeed" :more="false" :busy="pu.busy" :first="pu.busy">{{ pu.u.name }} chưa có bài viết nào.</c-feed>
+   </div>
+   <div class="feed mt-4">
+    <h3 class="feed_header">Nhật ký</h3>
+    <c-blog :uid="pu.u.id" :key="'b'+pu.u.id"></c-blog>
+   </div>
+   <div class="feed mt-4">
+    <h3 class="feed_header">Album</h3>
+    <c-album :uid="pu.u.id" :key="pu.u.id"></c-album>
+   </div>
+   </div>
+  </div>
+ </div>
+ <div v-else class="borderbox text-sm text-mute">Đang tải…</div>
+</section>
+
+<!-- ===== NHÓM ===== -->
+<section v-else-if="view==='groups'" class="space-y-3 gr-page" :class="{tw:themed}">
+ <div class="flex items-center gap-2 flex-wrap mb-3 gr-head" :class="{'gr-l':gr.page==='list'}">
+  <button v-if="gr.page!=='list'" class="gh" @click="gBack">« Quay lại</button>
+  <h2 class="title !mb-0"><img src="/img/uch/app/mtag.gif" alt="">Nhóm</h2>
+  <button v-if="gr.page==='list'" class="btn btn-g ml-auto" @click="gr.page='create';gr.err='';gr.msg='';gr.c={cat:'',name:'',names:[],err:{}}">＋ Tạo / tham gia nhóm</button>
+ </div>
+ <p v-if="gr.err" class="card p-3 text-sm" style="color:#d64545" role="alert">{{ gr.err }}</p>
+ <p v-if="gr.msg" class="card p-3 text-sm" style="color:var(--zg)" role="status">{{ gr.msg }}</p>
+
+ <!-- Danh sách nhóm -->
+ <template v-if="gr.page==='list'">
+  <div class="tabs_header">
+   <button v-for="t in GTABS" :key="t[0]" class="uc-tab" :class="{on:gr.tab===t[0]}" @click="gr.tab=t[0];gLoad(1)"><span>{{ t[1] }}<b v-if="t[0]==='invites'&&gr.invN" class="ml-1 px-1.5 rounded-full text-white text-xs" style="background:#d64545">{{ gr.invN }}</b></span></button>
+   <button v-if="acct.admin" class="uc-tab" :class="{on:gr.tab==='admin'}" @click="gr.tab='admin'"><span>🛠️ Chuyên mục</span></button>
+  </div>
+
+  <template v-if="gr.tab==='invites'">
+   <div v-if="!gr.invites.length" class="card p-4 text-sm text-mute">Bạn chưa có lời mời vào nhóm nào.</div>
+   <div v-for="i in gr.invites" :key="i.group.id" class="card p-3 flex items-center gap-3 flex-wrap">
+    <div class="flex-1 min-w-[160px]"><b>{{ i.group.name }}</b> <span class="text-xs text-mute">· {{ i.group.category&&i.group.category.title }}</span><div class="text-xs text-mute">{{ i.from?i.from.name:'Ai đó' }} mời bạn · {{ gT(i.at) }}</div></div>
+    <button class="btn btn-g !h-8" @click="gInvAcc(i)">Tham gia</button><button class="btn !h-8 !bg-transparent !text-mute border border-line" @click="gInvDec(i)">Từ chối</button>
+   </div>
+   <button v-if="gr.invites.length>1" class="gh" @click="gInvDec(null)">Từ chối tất cả</button>
+  </template>
+
+  <!-- Quản trị: chuyên mục (profield) -->
+  <div v-else-if="gr.tab==='admin'&&acct.admin" class="card p-4 space-y-3">
+   <h2 class="font-bold">🛠️ Chuyên mục nhóm <span class="text-xs text-mute font-normal">(quản trị viên)</span></h2>
+   <div v-if="!ga.f&&!ga.del" class="space-y-2">
+    <div v-for="c in gr.cats" :key="c.id" class="mi !cursor-default">
+     <div class="flex-1 min-w-0"><div class="truncate font-semibold">{{ c.title }}</div><div class="text-xs text-mute">{{ GFT[c.formtype] }}{{ c.formtype!=='select'&&c.inputnum?' · tối đa '+c.inputnum+' nhóm/người':'' }}{{ c.mtagminnum?' · cần '+c.mtagminnum+' thành viên để đăng bài':'' }}</div></div>
+     <input v-model.number="ga.order[c.id]" type="number" class="ip !w-16 !h-8" :aria-label="'Thứ tự '+c.title">
+     <button class="btn !h-8 !bg-transparent !text-zb2 border border-line" @click="gaEdit(c)">Sửa</button>
+     <button class="btn !h-8 !bg-transparent !text-[#d64545] border border-line" @click="ga.del={id:c.id,title:c.title,to:''}">Xóa</button>
+    </div>
+    <p v-if="!gr.cats.length" class="text-sm text-mute">Chưa có chuyên mục nào. Hãy tạo ít nhất một chuyên mục (ví dụ: Sở thích, Trường học, Nơi sống) để người dùng lập nhóm.</p>
+    <div class="flex gap-2"><button class="btn btn-g flex-1" @click="gaEdit(null)">＋ Thêm chuyên mục</button><button v-if="gr.cats.length" class="btn flex-1 !bg-transparent !text-zb2 border border-line" :disabled="ga.busy" @click="gaOrder">Cập nhật thứ tự</button></div>
+   </div>
+   <form v-else-if="ga.del" class="space-y-3" @submit.prevent="gaDel">
+    <p class="text-sm">Xóa chuyên mục <b>{{ ga.del.title }}</b>: chọn chuyên mục sẽ nhận các nhóm đang nằm trong đó.</p>
+    <select v-model="ga.del.to" class="ip"><option value="">— Chọn chuyên mục —</option><option v-for="c in gr.cats.filter(x=>x.id!==ga.del.id)" :key="c.id" :value="c.id">{{ c.title }}</option></select>
+    <p class="text-sm" style="color:#d64545">{{ ga.err.all }}</p>
+    <div class="flex gap-2"><button type="button" class="btn flex-1 !bg-transparent !text-mute border border-line" @click="ga.del=null">Hủy</button><button class="btn flex-1 !bg-[#d64545]" :disabled="ga.busy">Xóa chuyên mục</button></div>
+   </form>
+   <form v-else class="space-y-3" novalidate @submit.prevent="gaSave">
+    <label class="block text-sm"><span class="text-mute">Tên chuyên mục</span><input v-model="ga.f.title" maxlength="50" class="ip mt-1"><small v-if="ga.err.title" style="color:#d64545">{{ ga.err.title }}</small></label>
+    <label class="block text-sm"><span class="text-mute">Mô tả</span><input v-model="ga.f.note" maxlength="100" class="ip mt-1"></label>
+    <label class="block text-sm"><span class="text-mute">Cách tạo nhóm</span><select v-model="ga.f.formtype" class="ip mt-1"><option value="text">Người dùng tự đặt tên nhóm</option><option value="select">Chọn một nhóm trong danh sách</option><option value="multi">Chọn nhiều nhóm trong danh sách</option></select></label>
+    <label v-if="ga.f.formtype!=='text'" class="block text-sm"><span class="text-mute">Danh sách nhóm (mỗi dòng một tên)</span><textarea v-model="ga.f.choice" rows="5" class="ip mt-1 resize-none" placeholder="Bóng đá&#10;Âm nhạc"></textarea><small v-if="ga.err.choice" style="color:#d64545">{{ ga.err.choice }}</small></label>
+    <label v-if="ga.f.formtype!=='select'" class="block text-sm"><span class="text-mute">Số nhóm tối đa một người được vào trong chuyên mục (0 = không giới hạn)</span><input v-model.number="ga.f.inputnum" type="number" min="0" max="50" class="ip mt-1"></label>
+    <label class="block text-sm"><span class="text-mute">Số thành viên tối thiểu để nhóm được đăng chủ đề / trả lời</span><input v-model.number="ga.f.mtagminnum" type="number" min="0" class="ip mt-1"></label>
+    <label class="flex items-center gap-2 text-sm"><input type="checkbox" v-model="ga.f.manualmoderator"> Quản trị tự chỉ định chủ nhóm (không chọn = người vào đầu tiên làm chủ nhóm)</label>
+    <label class="flex items-center gap-2 text-sm"><input type="checkbox" v-model="ga.f.manualmember"> Cho phép chủ nhóm đặt cách tham gia (duyệt / chỉ mời)</label>
+    <label class="block text-sm"><span class="text-mute">Thứ tự hiển thị</span><input v-model.number="ga.f.displayorder" type="number" class="ip mt-1"></label>
+    <p class="text-sm min-h-[1.25rem]" style="color:#d64545" role="alert">{{ ga.err.all }}</p>
+    <div class="flex gap-2"><button type="button" class="btn flex-1 !bg-transparent !text-mute border border-line" @click="ga.f=null">Hủy</button><button class="btn btn-g flex-1" :disabled="ga.busy">{{ ga.busy?'Đang lưu…':'Lưu chuyên mục' }}</button></div>
+   </form>
+  </div>
+
+  <template v-else>
+   <div class="card p-3 space-y-2">
+    <div class="flex gap-2 gr-s"><input v-model="gr.q" class="ip" placeholder="Tìm nhóm theo tên…" @keyup.enter="gLoad(1)" aria-label="Tìm nhóm"><button class="btn" @click="gLoad(1)">Tìm</button></div>
+    <div class="flex flex-wrap gap-2 gr-f">
+     <select v-model="gr.cat" class="ip !w-auto !py-1.5 text-sm" @change="gLoad(1)" aria-label="Chuyên mục"><option value="">Mọi chuyên mục</option><option v-for="c in gr.cats" :key="c.id" :value="c.id">{{ c.title }}</option></select>
+     <select v-model="gr.orderby" class="ip !w-auto !py-1.5 text-sm" @change="gLoad(1)" aria-label="Sắp xếp"><option value="threadNum">Nhiều chủ đề</option><option value="postNum">Nhiều bài viết</option><option value="memberNum">Nhiều thành viên</option></select>
+    </div>
+   </div>
+   <div v-if="gr.busy" class="card p-4 text-sm text-mute">Đang tải…</div>
+   <div v-else-if="!gr.list.length" class="card p-4 text-sm text-mute">{{ gr.tab==='me'?'Bạn chưa tham gia nhóm nào. Bấm “Tạo / tham gia nhóm” để bắt đầu.':'Chưa có nhóm nào.' }}</div>
+   <button v-for="g in gr.list" :key="g.id" class="uc-row w-full text-left flex items-center gap-3" @click="gOpen(g.id)">
+    <img :src="g.pic||'/img/nologo.jpg'" @error="gImgErr" alt="" class="threadimg w-11 h-11 object-cover shrink-0 bg-white" loading="lazy" referrerpolicy="no-referrer">
+    <span class="flex-1 min-w-0"><b class="block truncate">{{ g.name }}<span v-if="g.recommend" title="Được đề cử"> ⭐</span></b><span class="text-xs text-mute block truncate">{{ g.category&&g.category.title }} · {{ g.memberNum }} thành viên · {{ g.threadNum }} chủ đề · {{ g.postNum }} trả lời</span></span>
+    <span v-if="g.ismember" class="text-xs px-2 py-0.5 rounded-full border border-line text-mute">{{ GN[g.grade] }}</span>
+   </button>
+   <div v-if="gr.total>gr.per" class="flex items-center justify-center gap-2 text-sm"><button class="gh" :disabled="gr.pg<=1" @click="gLoad(gr.pg-1)">‹ Trước</button><span>Trang {{ gr.pg }}/{{ Math.ceil(gr.total/gr.per) }}</span><button class="gh" :disabled="gr.pg>=Math.ceil(gr.total/gr.per)" @click="gLoad(gr.pg+1)">Sau ›</button></div>
+  </template>
+ </template>
+
+ <!-- Tạo / tham gia -->
+ <form v-else-if="gr.page==='create'" class="uc-form space-y-3" novalidate @submit.prevent="gCreate">
+  <h2 class="title"><img src="/img/uch/app/mtag.gif" alt="">Tạo hoặc tham gia nhóm</h2>
+  <div class="tabs_header"><button type="button" class="uc-tab on"><span>Tạo nhóm</span></button></div>
+  <p v-if="!gr.cats.length" class="text-sm text-mute">Quản trị viên chưa tạo chuyên mục nào nên chưa lập nhóm được.</p>
+  <label class="block text-sm"><span class="text-mute">Chuyên mục</span><select v-model="gr.c.cat" class="ip mt-1" @change="gr.c.names=[];gr.c.name='';gr.err=''"><option value="">— Chọn chuyên mục —</option><option v-for="c in gr.cats" :key="c.id" :value="c.id">{{ c.title }}</option></select></label>
+  <template v-if="gCat">
+   <p v-if="gCat.note" class="text-sm text-mute">{{ gCat.note }}</p>
+   <label v-if="gCat.formtype==='text'" class="block text-sm"><span class="text-mute">Tên nhóm (2–40 ký tự) – nhóm đã có thì bạn sẽ được vào nhóm đó, chưa có thì tạo mới</span><input v-model="gr.c.name" maxlength="40" class="ip mt-1" placeholder="Ví dụ: Hội yêu mèo"><small v-if="gr.c.err.name" style="color:#d64545">{{ gr.c.err.name }}</small></label>
+   <div v-else class="space-y-1 frow">
+    <span class="gray block">{{ gCat.formtype==='select'?'Chọn một nhóm':'Chọn các nhóm bạn muốn vào' }}</span>
+    <label v-for="n in gCat.choice" :key="n" class="flex items-center gap-2 text-sm py-1"><input :type="gCat.formtype==='select'?'radio':'checkbox'" name="gchoice" :value="n" v-model="gr.c.names" @change="gCat.formtype==='select'&&(gr.c.names=[n])"> {{ n }}</label>
+   </div>
+   <p v-if="gCat.formtype!=='select'&&gCat.inputnum" class="text-xs text-mute">Mỗi người được vào tối đa {{ gCat.inputnum }} nhóm trong chuyên mục này.</p>
+  </template>
+  <div class="frow"><button class="btn" :disabled="gr.busy||!gCat">{{ gr.busy?'Đang xử lý…':'Tham gia' }}</button></div>
+ </form>
+
+ <!-- Trang nhóm -->
+ <template v-else-if="gr.page==='group'">
+  <div v-if="!gr.g&&!gr.err" class="card p-4 text-sm text-mute">Đang tải…</div>
+  <template v-if="gr.g">
+   <div class="card p-4 space-y-2">
+    <div class="flex items-start gap-3 flex-wrap">
+     <img :src="gr.g.pic||'/img/nologo.jpg'" @error="gImgErr" alt="" class="w-14 h-14 rounded-md object-cover shrink-0 bg-white" referrerpolicy="no-referrer">
+     <div class="flex-1 min-w-[160px]"><h2 class="text-lg font-bold break-words">{{ gr.g.name }}<span v-if="gr.g.recommend"> ⭐</span></h2><div class="text-sm text-mute">{{ gr.g.category.title }} · {{ gr.g.memberNum }} thành viên · {{ gr.g.threadNum }} chủ đề · {{ gr.g.postNum }} trả lời</div>
+      <div v-if="gr.g.closed" class="text-sm" style="color:#d64545">🔒 Nhóm đã bị đóng</div>
+      <div v-if="gr.g.joinperm===1" class="text-xs text-mute">Vào nhóm cần chủ nhóm duyệt</div><div v-if="gr.g.joinperm===2" class="text-xs text-mute">Nhóm chỉ nhận thành viên được mời</div><div v-if="gr.g.viewperm" class="text-xs text-mute">Chỉ thành viên xem được nội dung</div></div>
+     <div class="flex flex-col gap-1 items-stretch">
+      <button v-if="gr.g.grade===-9" class="btn btn-g" :disabled="gr.busy" @click="gJoin">{{ gr.g.joinperm===1?'Xin vào nhóm':'Tham gia' }}</button>
+      <span v-else-if="gr.g.grade===-2" class="text-sm text-mute px-2">⏳ Đang chờ duyệt</span>
+      <button v-if="gr.g.ismember" class="btn !bg-transparent !text-mute border border-line" @click="gLeave">Rời nhóm</button>
+     </div>
+    </div>
+    <div v-if="gr.g.allowview&&gr.g.announcement" class="rounded-md p-3 text-sm whitespace-pre-wrap break-words" style="background:var(--bg)">📢 {{ gr.g.announcement }}</div>
+    <div v-if="gr.g.moderators.length" class="text-sm text-mute">Quản lý: <button v-for="m in gr.g.moderators" :key="m.id" class="text-zb2 mr-2" @click="openUser(m.id)">{{ m.name }} ({{ GN[m.grade] }})</button></div>
+    <div v-if="gr.g.minnum&&gr.g.memberNum<gr.g.minnum" class="text-xs" style="color:#b7791f">Nhóm cần tối thiểu {{ gr.g.minnum }} thành viên mới đăng chủ đề / trả lời được.</div>
+   </div>
+
+   <div class="tabs_header">
+    <button v-for="t in gTabs" :key="t[0]" class="uc-tab" :class="{on:gr.gtab===t[0]}" @click="gTab(t[0])"><span>{{ t[1] }}<b v-if="t[0]==='manage'&&gr.g.pending" class="ml-1 px-1.5 rounded-full text-white text-xs" style="background:#d64545">{{ gr.g.pending }}</b></span></button>
+   </div>
+   <p v-if="!gr.g.allowview" class="card p-4 text-sm text-mute">🔒 Nhóm này chỉ cho thành viên xem nội dung.</p>
+
+   <!-- Chủ đề / Tinh hoa -->
+   <template v-else-if="gr.gtab==='threads'||gr.gtab==='digest'">
+    <div class="flex gap-2"><input v-model="gr.tq" class="ip" placeholder="Tìm chủ đề…" @keyup.enter="gThreads(1)" aria-label="Tìm chủ đề"><button class="btn" @click="gThreads(1)">Tìm</button><button v-if="gr.g.canThread" class="btn btn-g" @click="gr.newT.open=!gr.newT.open">＋ Chủ đề</button></div>
+    <form v-if="gr.newT.open" class="card p-4 space-y-2" novalidate @submit.prevent="gPostThread">
+     <input v-model="gr.newT.subject" maxlength="80" class="ip" placeholder="Tiêu đề (2–80 ký tự)"><small v-if="gr.newT.err.subject" style="color:#d64545">{{ gr.newT.err.subject }}</small>
+     <textarea v-model="gr.newT.text" rows="5" maxlength="5000" class="ip resize-y" placeholder="Nội dung…"></textarea><small v-if="gr.newT.err.text" style="color:#d64545">{{ gr.newT.err.text }}</small>
+     <p v-if="gr.newT.err.all" class="text-sm" style="color:#d64545">{{ gr.newT.err.all }}</p>
+     <button class="btn btn-g w-full" :disabled="gr.busy">Đăng chủ đề</button>
+    </form>
+    <p v-else-if="!gr.g.canThread&&gr.g.grade===-9&&!gr.g.closed" class="text-xs text-mute">Hãy tham gia nhóm để đăng chủ đề.</p>
+    <div v-if="!gr.threads.length" class="c_form">Không có danh sách chủ đề.</div>
+    <div v-else class="topic_list"><table cellspacing="0" cellpadding="0"><thead><tr><td class="subject">Chủ đề</td><td class="author">Tác giả (Đáp/Đọc)</td><td class="lastpost">Cập nhật</td></tr></thead>
+     <tbody><tr v-for="(t,i) in gr.threads" :key="t.id" :class="{alt:i%2}" class="cursor-pointer" @click="gOpenThread(t.id,1)">
+      <td class="subject"><span v-if="t.top" title="Ghim">📌 </span><span v-if="t.digest" title="Tinh hoa">💎 </span><a href="#" @click.prevent>{{ t.subject }}</a></td>
+      <td class="author">{{ t.author.name }}<br><em>{{ t.replyNum }}/{{ t.viewNum }}</em></td>
+      <td class="lastpost"><template v-if="t.replyNum">{{ t.lastAuthor }}<br></template>{{ gT(t.createdAt) }}</td>
+     </tr></tbody></table></div>
+    <div v-if="gr.tTotal>gr.tper" class="flex items-center justify-center gap-2 text-sm"><button class="gh" :disabled="gr.tPg<=1" @click="gThreads(gr.tPg-1)">‹ Trước</button><span>Trang {{ gr.tPg }}/{{ Math.ceil(gr.tTotal/gr.tper) }}</span><button class="gh" :disabled="gr.tPg>=Math.ceil(gr.tTotal/gr.tper)" @click="gThreads(gr.tPg+1)">Sau ›</button></div>
+   </template>
+
+   <!-- Thành viên -->
+   <template v-else-if="gr.gtab==='members'">
+    <div class="flex gap-2"><input v-model="gr.mq" class="ip" placeholder="Tìm thành viên…" @keyup.enter="gMembers(1)" aria-label="Tìm thành viên"><button class="btn" @click="gMembers(1)">Tìm</button></div>
+    <div class="card p-2">
+     <div v-if="!gr.members.length" class="p-3 text-sm text-mute">Không có thành viên nào.</div>
+     <div v-for="m in gr.members" :key="m.id" class="mi !cursor-default flex-wrap">
+      <c-av :name="m.name" :src="m.avatar" :size="32"></c-av>
+      <button class="flex-1 min-w-[120px] text-left truncate" @click="openUser(m.id)"><b>{{ m.name }}</b> <span class="text-xs text-mute">{{ GN[m.grade] }}</span></button>
+      <template v-if="gr.g.manager&&m.id!==uid&&(m.grade<8||gr.g.owner)">
+       <template v-if="m.grade===-2"><button class="btn btn-g !h-8" @click="gSetGrade(m,0)">Duyệt</button><button class="btn !h-8 !bg-transparent !text-mute border border-line" @click="gSetGrade(m,-9)">Từ chối</button></template>
+       <template v-else><select class="ip !w-auto !py-1 text-sm" :value="m.grade" @change="gSetGrade(m,+$event.target.value)" :aria-label="'Cấp của '+m.name"><option :value="-9">Mời ra khỏi nhóm</option><option :value="-1">Cấm đăng bài</option><option :value="0">Thành viên</option><option :value="1">Thành viên sao</option><option v-if="gr.g.owner" :value="8">Phó nhóm</option><option v-if="gr.g.owner" :value="9">Chủ nhóm</option></select></template>
+      </template>
+     </div>
+    </div>
+    <div v-if="gr.mTotal>50" class="flex items-center justify-center gap-2 text-sm"><button class="gh" :disabled="gr.mPg<=1" @click="gMembers(gr.mPg-1)">‹ Trước</button><span>Trang {{ gr.mPg }}/{{ Math.ceil(gr.mTotal/50) }}</span><button class="gh" :disabled="gr.mPg>=Math.ceil(gr.mTotal/50)" @click="gMembers(gr.mPg+1)">Sau ›</button></div>
+   </template>
+
+   <!-- Mời bạn -->
+   <template v-else-if="gr.gtab==='invite'">
+    <div class="card p-4 space-y-2">
+     <h3 class="font-bold">Mời bạn bè vào nhóm</h3>
+     <div class="flex gap-2"><input v-model="gr.inv.q" class="ip" placeholder="Tìm bạn…" @keyup.enter="gInviteLoad" aria-label="Tìm bạn"><button class="btn" @click="gInviteLoad">Tìm</button></div>
+     <p v-if="!gr.inv.list.length" class="text-sm text-mute">Không còn người bạn nào để mời.</p>
+     <label v-for="f in gr.inv.list" :key="f.id" class="flex items-center gap-2 text-sm py-1"><input type="checkbox" v-model="gr.inv.sel[f.id]"> <c-av :name="f.name" :src="f.avatar" :size="28"></c-av> {{ f.name }}</label>
+     <button class="btn btn-g w-full" :disabled="gr.busy||!Object.values(gr.inv.sel).some(Boolean)" @click="gInviteSend">Gửi lời mời</button>
+    </div>
+   </template>
+
+   <!-- Quản lý nhóm -->
+   <form v-else-if="gr.gtab==='manage'" class="card p-4 space-y-3" novalidate @submit.prevent="gSave">
+    <h3 class="font-bold">Quản lý nhóm</h3>
+    <label class="block text-sm"><span class="text-mute">Ảnh đại diện nhóm (đường dẫn ảnh http:// hoặc https://, để trống = ảnh mặc định)</span><div class="flex items-center gap-2 mt-1"><img :src="gr.set.pic||'/img/nologo.jpg'" @error="gImgErr" alt="" class="w-10 h-10 rounded-md object-cover shrink-0 bg-white" referrerpolicy="no-referrer"><input v-model="gr.set.pic" maxlength="150" class="ip" placeholder="https://…/anh.jpg"></div></label>
+    <label class="block text-sm"><span class="text-mute">Thông báo của nhóm ({{ gr.set.announcement.length }}/2000)</span><textarea v-model="gr.set.announcement" rows="4" maxlength="2000" class="ip mt-1 resize-y"></textarea></label>
+    <template v-if="gr.g.owner">
+     <label v-if="gr.g.canSetJoin" class="block text-sm"><span class="text-mute">Cách tham gia</span><select v-model.number="gr.set.joinperm" class="ip mt-1"><option :value="0">Tự do</option><option :value="1">Cần chủ nhóm duyệt</option><option :value="2">Chỉ nhận người được mời</option></select></label>
+     <label class="block text-sm"><span class="text-mute">Ai xem được nội dung nhóm</span><select v-model.number="gr.set.viewperm" class="ip mt-1"><option :value="0">Mọi người</option><option :value="1">Chỉ thành viên</option></select></label>
+     <label class="block text-sm"><span class="text-mute">Ai được đăng chủ đề</span><select v-model.number="gr.set.threadperm" class="ip mt-1"><option :value="0">Chỉ thành viên</option><option :value="1">Cả người ngoài nhóm</option></select></label>
+     <label class="block text-sm"><span class="text-mute">Ai được trả lời</span><select v-model.number="gr.set.postperm" class="ip mt-1"><option :value="0">Chỉ thành viên</option><option :value="1">Cả người ngoài nhóm</option></select></label>
+    </template>
+    <template v-if="acct.admin">
+     <label class="flex items-center gap-2 text-sm"><input type="checkbox" v-model="gr.set.recommend"> ⭐ Đề cử nhóm (quản trị viên)</label>
+     <label class="flex items-center gap-2 text-sm"><input type="checkbox" v-model="gr.set.closed"> 🔒 Đóng nhóm (quản trị viên)</label>
+    </template>
+    <button class="btn btn-g w-full" :disabled="gr.busy">Lưu thay đổi</button>
+    <button v-if="acct.admin" type="button" class="btn w-full !bg-transparent !text-[#d64545] border border-line" @click="gDelGroup">Xóa nhóm (quản trị viên)</button>
+    <p class="text-xs text-mute">Duyệt thành viên, bổ nhiệm phó nhóm: mở tab “Thành viên”.</p>
+   </form>
+  </template>
+ </template>
+
+ <!-- Chủ đề -->
+ <template v-else-if="gr.page==='thread'">
+  <div v-if="!gr.th&&!gr.err" class="card p-4 text-sm text-mute">Đang tải…</div>
+  <template v-if="gr.th">
+   <h2 class="title"><img src="/img/uch/app/mtag.gif" alt=""><a href="#" @click.prevent="gBack">{{ gr.th.group.category }}</a> - <a href="#" @click.prevent="gOpen(gr.th.group.id)">{{ gr.th.group.name }}</a></h2>
+   <div class="tabs_header">
+    <button class="uc-tab" @click="gOpen(gr.th.group.id)"><span>Quay lại diễn đàn</span></button>
+    <button v-if="gr.th.perms.reply" class="uc-tab uc-null" @click="$refs.gform&&$refs.gform.scrollIntoView({behavior:'smooth'})"><span>Trả lời</span></button>
+   </div>
+   <div class="board">
+    <ul v-if="gr.th.content" class="line_list"><li>
+     <table width="100%"><tr>
+      <td class="av48" valign="top"><a href="#" @click.prevent="gr.th.thread.author.id&&openUser(gr.th.thread.author.id)"><c-av sq :name="gr.th.thread.author.name" :src="gr.th.thread.author.avatar" :size="48"></c-av></a></td>
+      <td>
+       <div class="title">
+        <h1><span v-if="gr.th.thread.top">📌 </span><span v-if="gr.th.thread.digest" class="hot"><em>Tinh hoa</em></span>{{ gr.th.thread.subject }}</h1>
+        <a href="#" @click.prevent="gr.th.thread.author.id&&openUser(gr.th.thread.author.id)">{{ gr.th.thread.author.name }}</a>
+        <span class="gray">{{ gT(gr.th.thread.createdAt) }} · {{ gr.th.thread.viewNum }} lượt xem · {{ gr.th.thread.replyNum }} trả lời</span>
+       </div>
+       <form v-if="gr.edit.id===gr.th.content.id" class="space-y-2" novalidate @submit.prevent="gEditSave">
+        <input v-model="gr.edit.subject" maxlength="80" class="ip"><textarea v-model="gr.edit.text" rows="6" maxlength="5000" class="ip resize-y"></textarea><p class="text-sm" style="color:#d64545">{{ gr.edit.err }}</p>
+        <div class="flex gap-2"><button class="btn" :disabled="gr.busy">Lưu</button><button type="button" class="btn !bg-transparent" @click="gr.edit.id=''">Hủy</button></div>
+       </form>
+       <template v-else>
+        <div class="detail whitespace-pre-wrap break-words">{{ gr.th.content.text }}</div>
+        <div v-if="gr.th.content.editedAt" class="gray">✏️ {{ gr.th.content.editedBy }} đã sửa lúc {{ gT(gr.th.content.editedAt) }}</div>
+       </template>
+      </td>
+     </tr></table>
+     <p class="ops">
+      <template v-if="gr.th.content.mine||gr.th.perms.manager"><a href="#" @click.prevent="gEditStart(gr.th.content)">Chỉnh sửa</a> <a href="#" @click.prevent="gDelPost(gr.th.content)">Xóa chủ đề</a></template>
+      <template v-if="gr.th.perms.manager"><span class="pipe">|</span><a href="#" @click.prevent="gFlag('top')">{{ gr.th.thread.top?'Hủy Top':'Top' }}</a> <a href="#" @click.prevent="gFlag('digest')">{{ gr.th.thread.digest?'Hủy tinh hoa':'Tinh hoa' }}</a></template>
+      <a v-if="gr.th.perms.reply" href="#" @click.prevent="$refs.gform&&$refs.gform.scrollIntoView({behavior:'smooth'})">Trả lời</a>
+     </p>
+    </li></ul>
+    <div class="page" v-if="gr.th.total>gr.th.per"><a v-if="gr.th.page>1" href="#" @click.prevent="gOpenThread(gr.th.thread.id,gr.th.page-1)">‹ Trước</a><strong>{{ gr.th.page }}</strong>/{{ Math.ceil(gr.th.total/gr.th.per) }}<a v-if="gr.th.page<Math.ceil(gr.th.total/gr.th.per)" href="#" @click.prevent="gOpenThread(gr.th.thread.id,gr.th.page+1)">Sau ›</a></div>
+    <div id="post_ul">
+     <ul v-for="(p,i) in gr.th.posts" :key="p.id" class="line_list"><li>
+      <table width="100%"><tr>
+       <td class="av48" valign="top"><a href="#" @click.prevent="p.author.id&&openUser(p.author.id)"><c-av sq :name="p.author.name" :src="p.author.avatar" :size="48"></c-av></a></td>
+       <td>
+        <div class="title">
+         <div class="r_option"><template v-if="p.mine||p.canManage"><a href="#" @click.prevent="gEditStart(p)">Sửa</a> <a href="#" @click.prevent="gDelPost(p)">Xóa</a> </template><a v-if="gr.th.perms.reply" href="#" @click.prevent="gr.reply.quote=p.id;gr.reply.qname=p.author.name;$refs.gform&&$refs.gform.scrollIntoView({behavior:'smooth'})">Trả lời</a> <span class="gray">#{{ (gr.th.page-1)*gr.th.per+i+1 }}</span></div>
+         <a href="#" @click.prevent="p.author.id&&openUser(p.author.id)">{{ p.author.name }}</a> <span class="gray">{{ gT(p.createdAt) }}</span>
+        </div>
+        <div v-if="p.quote" class="quote">« <b>{{ p.quote.name }}</b>: {{ p.quote.text }}</div>
+        <form v-if="gr.edit.id===p.id" class="space-y-2" novalidate @submit.prevent="gEditSave"><textarea v-model="gr.edit.text" rows="4" maxlength="5000" class="ip resize-y"></textarea><p class="text-sm" style="color:#d64545">{{ gr.edit.err }}</p><div class="flex gap-2"><button class="btn" :disabled="gr.busy">Lưu</button><button type="button" class="btn !bg-transparent" @click="gr.edit.id=''">Hủy</button></div></form>
+        <template v-else>
+         <div class="detail whitespace-pre-wrap break-words"><c-tx :t="p.text"></c-tx></div>
+         <div v-if="p.editedAt" class="gray">✏️ {{ p.editedBy }} đã sửa lúc {{ gT(p.editedAt) }}</div>
+        </template>
+       </td>
+      </tr></table>
+     </li></ul>
+    </div>
+    <div class="page" v-if="gr.th.total>gr.th.per"><a v-if="gr.th.page>1" href="#" @click.prevent="gOpenThread(gr.th.thread.id,gr.th.page-1)">‹ Trước</a><strong>{{ gr.th.page }}</strong>/{{ Math.ceil(gr.th.total/gr.th.per) }}<a v-if="gr.th.page<Math.ceil(gr.th.total/gr.th.per)" href="#" @click.prevent="gOpenThread(gr.th.thread.id,gr.th.page+1)">Sau ›</a></div>
+    <form v-if="gr.th.perms.reply" id="g-reply" ref="gform" class="quickpost" novalidate @submit.prevent="gReply">
+     <table><tr><td>
+      <div v-if="gr.reply.quote" class="gray">Trả lời <b>{{ gr.reply.qname }}</b> <a href="#" @click.prevent="gr.reply.quote='';gr.reply.qname=''">bỏ trích dẫn</a></div>
+      <textarea v-model="gr.reply.text" rows="3" maxlength="5000" class="ip resize-y" placeholder="Viết trả lời…"></textarea>
+      <p class="text-sm" style="color:#d64545" role="alert">{{ gr.reply.err }}</p>
+      <button class="btn" :disabled="gr.busy">Gửi trả lời</button>
+     </td></tr></table>
+    </form>
+    <p v-else class="gray">Bạn cần là thành viên của nhóm (hoặc nhóm chưa đủ thành viên tối thiểu / đã đóng) nên chưa trả lời được.</p>
+   </div>
+  </template>
+ </template>
+</section>
+
+<!-- ===== SỰ KIỆN / BÌNH CHỌN / TÌM KIẾM ===== -->
+<section v-else-if="view==='events'" class="space-y-3">
+ <h2 class="title"><img src="/img/uch/app/event.gif" alt="">Sự kiện</h2>
+ <c-events :key="'ev'+evNav.n" :open="evNav.id" @used="evNav.id=''"></c-events>
+</section>
+<section v-else-if="view==='polls'" class="space-y-3">
+ <h2 class="title"><img src="/img/uch/app/poll.gif" alt="">Bình chọn</h2>
+ <c-polls :key="'po'+poNav.n" :open="poNav.id" @used="poNav.id=''"></c-polls>
+</section>
+<section v-else-if="view==='doings'" class="space-y-3">
+ <h2 class="title"><img src="/img/uch/app/doing.gif" alt="">Trạng thái</h2>
+ <c-doings></c-doings>
+</section>
+<section v-else-if="view==='discover'" class="space-y-3">
+ <h2 class="title"><img src="/img/uch/app/topic.gif" alt="">Khám phá</h2>
+ <c-discover @user="openUser"></c-discover>
+</section>
+<section v-else-if="view==='map'" class="space-y-3">
+ <h2 class="title">📍 Bản đồ check-in</h2>
+ <c-map></c-map>
+</section>
+<section v-else-if="view==='topics'" class="space-y-3">
+ <h2 class="title"><img src="/img/uch/app/mtag.gif" alt="">Chủ đề nóng</h2>
+ <c-topics></c-topics>
+</section>
+<section v-else-if="view==='tasks'" class="space-y-3">
+ <h2 class="title"><img src="/img/uch/app/poll.gif" alt="">Nhiệm vụ & điểm</h2>
+ <c-tasks></c-tasks>
+</section>
+<section v-else-if="view==='magic'" class="space-y-3">
+ <h2 class="title">🪄 Đạo cụ</h2>
+ <c-magic></c-magic>
+</section>
+<section v-else-if="view==='search'" class="space-y-3">
+ <h2 class="title"><img src="/img/uch/app/topic.gif" alt="">Tìm kiếm</h2>
+ <c-search :key="'sr'+sN" :init="sq" @pick="sPick"></c-search>
+</section>
+<section v-else-if="view==='tag'" class="space-y-3">
+ <h2 class="title">🏷️ Tag: {{ tagV.tag }}</h2>
+ <p v-if="tagV.err" class="text-sm" style="color:#d64545">{{ tagV.err }}</p>
+ <div v-if="tagV.busy&&!tagV.list.length" class="text-mute text-sm">Đang tải…</div>
+ <div v-else-if="!tagV.list.length" class="card p-4 text-sm text-mute">Chưa có nhật ký công khai nào với tag này.</div>
+ <button v-for="b in tagV.list" :key="b.id" class="uc-row w-full text-left block" @click="openUser(b.author.id)">
+  <b class="break-words">{{ b.title }}</b>
+  <span class="block text-xs mt-1 text-mute break-words">{{ b.excerpt }}</span>
+  <span class="flex items-center gap-2 mt-1 text-xs text-mute"><c-av :name="b.author.name" :src="b.author.avatar" :size="24"></c-av>{{ b.author.name }} · {{ ago(b.createdAt) }}</span>
+ </button>
+ <div v-if="tagV.list.length<tagV.total" class="text-center"><button class="btn !bg-transparent border border-line text-sm" :disabled="tagV.busy" @click="tagLoad(tagV.pg+1)">{{ tagV.busy?'Đang tải…':'Xem thêm' }}</button></div>
+</section>
+
+<!-- ===== DIỄN ĐÀN (phpFox forum) ===== -->
+<section v-else-if="view==='forum'" class="space-y-3">
+ <h2 class="title"><img src="/img/uch/app/discuz.gif" alt="">Diễn đàn</h2>
+ <c-forum :key="'fo'+foNav.n" :open="foNav.id" @used="foNav.id=''"></c-forum>
+</section>
+<!-- ===== ÂM NHẠC (phpFox music) ===== -->
+<section v-else-if="view==='music'" class="space-y-3">
+ <h2 class="title">🎵 Âm nhạc</h2>
+ <c-music></c-music>
+</section>
+<!-- ===== VIDEO (phpFox video) ===== -->
+<section v-else-if="view==='videos'" class="space-y-3">
+ <h2 class="title">🎬 Video</h2>
+ <c-videos :key="'vd'+vdNav.n" :open="vdNav.id" @used="vdNav.id=''"></c-videos>
+</section>
+<!-- ===== QUIZ (phpFox quiz) ===== -->
+<section v-else-if="view==='quizzes'" class="space-y-3">
+ <h2 class="title">❓ Trắc nghiệm</h2>
+ <c-quizzes :key="'qz'+qzNav.n" :open="qzNav.id" @used="qzNav.id=''"></c-quizzes>
+</section>
+<!-- ===== TRANG CỘNG ĐỒNG (phpFox pages) ===== -->
+<section v-else-if="view==='pages'" class="space-y-3">
+ <h2 class="title"><img src="/img/uch/app/mtag.gif" alt="">Trang cộng đồng</h2>
+ <c-pages :key="'pg'+pgNav.n" :open="pgNav.id" @used="pgNav.id=''"></c-pages>
+</section>
+<!-- ===== QUÀ TẶNG (phpFox egift) ===== -->
+<section v-else-if="view==='gifts'" class="space-y-3">
+ <h2 class="title">🎁 Quà tặng</h2>
+ <c-gifts></c-gifts>
+</section>
+<!-- ===== HỘP THƯ (phpFox mail) ===== -->
+<section v-else-if="view==='mail'" class="space-y-3">
+ <h2 class="title">✉️ Hộp thư</h2>
+ <c-mail></c-mail>
+</section>
+<!-- ===== BẢN TIN (phpFox bulletin) ===== -->
+<section v-else-if="view==='bulletins'" class="space-y-3">
+ <h2 class="title">📰 Bản tin</h2>
+ <c-bulletins></c-bulletins>
+</section>
+<!-- ===== LIÊN KẾT (phpFox link) ===== -->
+<section v-else-if="view==='links'" class="space-y-3">
+ <h2 class="title">🔗 Liên kết hay</h2>
+ <c-links></c-links>
+</section>
+<!-- ===== YÊU THÍCH (phpFox favorite) ===== -->
+<section v-else-if="view==='fav'" class="space-y-3">
+ <h2 class="title">⭐ Yêu thích</h2>
+ <c-fav @nav="favNav"></c-fav>
+</section>
+<!-- ===== TRỢ GIÚP (phpFox help) ===== -->
+<section v-else-if="view==='help'" class="space-y-3">
+ <h2 class="title">❓ Trợ giúp & Liên hệ</h2>
+ <c-help></c-help>
+</section>
+
+<!-- ===== CÀI ĐẶT ===== -->
+<section v-else-if="view==='settings'" class="space-y-3 uc-form" :class="{tw:themed}">
+ <h2 class="title"><img src="/img/uch/app/setting.gif" alt="">Chỉnh sửa hồ sơ</h2>
+ <div class="tabs_header">
+  <button class="uc-tab" :class="{on:!['sth','ssec','sadm','sblk'].includes(tab)}" @click="tab='sp'"><span>Hồ sơ</span></button>
+  <button class="uc-tab" :class="{on:tab==='sth'}" @click="tab='sth'"><span>Giao diện</span></button>
+  <button class="uc-tab" :class="{on:tab==='ssec'}" @click="tab='ssec'"><span>Bảo mật</span></button>
+  <button class="uc-tab" :class="{on:tab==='sblk'}" @click="blkTab('sblk')"><span>Chặn</span></button>
+  <button class="uc-tab" :class="{on:tab==='spv'}" @click="pvTab()"><span>Riêng tư</span></button>
+  <button v-if="acct.admin" class="uc-tab" :class="{on:tab==='sadm'}" @click="tab='sadm'"><span>Quản lý trường</span></button>
+ </div>
+ <div v-if="!acct.verified" class="ybg" role="alert">
+  <b>Email của bạn chưa được xác thực</b>
+  <p class="text-sm text-mute mt-1">Bạn cần xác thực <b class="text-ink break-all">{{ acct.email }}</b> để đăng bài, kết bạn và nhắn tin. Trong lúc đó bạn vẫn có thể chỉnh thông tin bên dưới.</p>
+  <button class="btn btn-g mt-3" :disabled="sg.busy" @click="sendVerify">{{ sg.busy?'Đang gửi…':'Gửi mã xác thực' }}</button>
+  <p class="text-sm mt-2" style="color:#d64545" v-if="sg.vErr">{{ sg.vErr }}</p>
+ </div>
+ <div v-show="!['sth','ssec','sadm'].includes(tab)" class="formtable-c">
+  <h3 class="feed_header">Ảnh đại diện</h3>
+  <div class="flex items-center gap-4 mt-2">
+   <c-av sq :name="me" :src="acct.avatar" :size="96"></c-av>
+   <div class="space-y-2 min-w-0">
+    <div class="flex flex-wrap gap-2">
+     <label class="btn btn-g cursor-pointer" :class="{'opacity-60 pointer-events-none':av.busy}">{{ av.busy?'Đang tải lên…':(acct.avatar?'Đổi ảnh':'Tải ảnh lên') }}<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" class="hidden" :disabled="av.busy" @change="pickAv"></label>
+     <button v-if="acct.avatar" type="button" class="btn !bg-transparent !text-mute border border-line" :disabled="av.busy" @click="rmAv">Gỡ ảnh</button>
+    </div>
+    <p class="text-xs text-mute">JPG, PNG, WEBP hoặc GIF, tối đa 5MB. Ảnh được cắt vuông quanh khuôn mặt.</p>
+    <p v-if="av.err" class="text-sm" style="color:#d64545" role="alert">{{ av.err }}</p>
+   </div>
+  </div>
+ </div>
+ <form v-show="!['sth','ssec','sadm','sblk'].includes(tab)" class="formtable-c space-y-3" novalidate @submit.prevent="saveSg">
+  <h3 class="feed_header">Thông tin cá nhân</h3>
+  <label class="block text-sm"><span class="text-mute">Tên hiển thị</span><input v-model="sg.name" maxlength="30" class="ip mt-1" autocomplete="name" @input="sg.msg=''"><small v-if="sg.err.name" style="color:#d64545">{{ sg.err.name }}</small></label>
+  <label class="block text-sm"><span class="text-mute">Tên đăng nhập <span class="text-xs">(dùng để đăng nhập, chữ thường/số/./_)</span></span><input v-model="sg.username" maxlength="20" name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" class="ip mt-1" @input="sg.msg=''"><small v-if="sg.err.username" style="color:#d64545">{{ sg.err.username }}</small></label>
+  <label class="block text-sm"><span class="text-mute">Số điện thoại</span><input v-model="sg.phone" inputmode="tel" maxlength="16" class="ip mt-1" placeholder="Ví dụ 0912345678" autocomplete="tel" @input="sg.msg=''"><small v-if="sg.err.phone" style="color:#d64545">{{ sg.err.phone }}</small></label>
+  <label class="block text-sm"><span class="text-mute">Ngày sinh</span><input v-model="sg.birthday" type="date" class="ip mt-1" @input="sg.msg=''"><small v-if="sg.err.birthday" style="color:#d64545">{{ sg.err.birthday }}</small></label>
+  <label class="block text-sm"><span class="text-mute">Nơi sống</span><input v-model="sg.location" maxlength="50" class="ip mt-1" placeholder="Ví dụ: Hà Nội" @input="sg.msg=''"><small v-if="sg.err.location" style="color:#d64545">{{ sg.err.location }}</small></label>
+  <label class="block text-sm"><span class="text-mute">Giới thiệu bản thân <span class="text-xs">({{ sg.bio.length }}/150)</span></span><textarea v-model="sg.bio" rows="2" maxlength="150" class="ip mt-1 resize-none" placeholder="Một câu về bạn…" @input="sg.msg=''"></textarea><small v-if="sg.err.bio" style="color:#d64545">{{ sg.err.bio }}</small></label>
+  <h3 v-if="pf.list.length" class="feed_header">Hồ sơ mở rộng</h3>
+  <label v-for="f in pf.list" :key="f.id" class="block text-sm"><span class="text-mute">{{ f.title }}<b v-if="f.required" style="color:#d64545"> *</b><span v-if="f.invisible" class="text-xs"> (chỉ mình bạn thấy)</span></span>
+   <select v-if="f.formtype==='select'" v-model="sg.extra[f.id]" class="ip mt-1" @change="sg.msg=''"><option value="">— Chưa chọn —</option><option v-for="c in f.choice" :key="c" :value="c">{{ c }}</option></select>
+   <input v-else v-model="sg.extra[f.id]" :maxlength="f.maxsize" class="ip mt-1" @input="sg.msg=''">
+   <small v-if="f.note" class="text-mute block">{{ f.note }}</small><small v-if="sg.err['x_'+f.id]" style="color:#d64545">{{ sg.err['x_'+f.id] }}</small></label>
+  <div class="text-sm"><span class="text-mute">Tuổi</span><div class="mt-1 font-semibold">{{ acct.age!==null?acct.age+' tuổi':'Chưa có (nhập ngày sinh để tính)' }}</div></div>
+  <p class="text-sm min-h-[1.25rem]" :style="{color:sg.err.all?'#d64545':'var(--zg)'}" role="status">{{ sg.err.all||sg.msg }}</p>
+  <div class="frow"><button class="btn" :disabled="sg.busy">{{ sg.busy?'Đang lưu…':'Lưu thay đổi' }}</button></div>
+ </form>
+<div v-if="tab==='spv'" class="space-y-4">
+ <h3 class="feed_header">Ai được xem từng phần hồ sơ của bạn</h3>
+ <p class="text-xs text-mute">Chọn ai được xem mỗi phần trên trang cá nhân của bạn. "Chỉ mình tôi" nghĩa là người khác không thấy phần đó (kể cả bạn bè).</p>
+ <p v-if="pv.err" class="text-sm" style="color:#d64545">{{ pv.err }}</p>
+ <div v-if="pv.busy&&!pv.sections" class="text-sm text-mute">Đang tải…</div>
+ <div v-for="(label,k) in (pv.sections||{})" :key="k" class="mi"><b class="flex-1 text-sm">{{ label }}</b>
+  <select v-model="pv.privacy[k]" class="ip !w-auto text-sm" :aria-label="label" @change="setPrivacy(k,pv.privacy[k])"><option v-for="(vl,vk) in (pv.values||{})" :key="vk" :value="vk">{{ vl }}</option></select></div>
+</div>
+<div v-if="tab==='sblk'" class="space-y-4">
+ <h3 class="feed_header">Tâm trạng hiện tại</h3>
+ <div class="flex gap-1 flex-wrap"><button v-for="m in blk.moods" :key="m" class="btn !py-1 text-sm" :class="blk.mood===m?'btn-g':'!bg-transparent border border-line'" @click="setMood(m)">{{ m }}</button>
+ <button v-if="blk.mood" class="btn !py-1 text-sm !bg-transparent border border-line" @click="setMood('')">✕ Xóa</button></div>
+ <h3 class="feed_header">Danh sách chặn</h3>
+ <p v-if="blk.err" class="text-sm" style="color:#d64545">{{ blk.err }}</p>
+ <div v-if="blk.busy" class="text-sm text-mute">Đang tải…</div>
+ <div v-else-if="!blk.list.length" class="text-sm text-mute">Bạn chưa chặn ai.</div>
+ <div v-for="b in blk.list" :key="b.id" class="mi"><c-av :name="b.user.name" :src="b.user.avatar" :size="36"></c-av><b class="flex-1 text-sm">{{ b.user.name }}</b><button class="btn !py-1 text-sm !bg-transparent border border-line" @click="unblockId(b.user.id)">Bỏ chặn</button></div>
+ <p class="text-xs text-mute">Người bị chặn (cả 2 chiều) sẽ không xem được trang của nhau và không thể nhắn tin, chọc, kết bạn, bình luận.</p>
+ <h3 class="feed_header">Ẩn khỏi bảng tin</h3>
+ <div v-if="!blk.hidden.length" class="text-sm text-mute">Không ẩn ai.</div>
+ <div v-for="h in blk.hidden" :key="h.id" class="mi"><c-av :name="h.name" :src="h.avatar" :size="36"></c-av><b class="flex-1 text-sm">{{ h.name }}</b><button class="btn !py-1 text-sm !bg-transparent border border-line" @click="unhideId(h.id)">Hiện lại</button></div>
+ <h3 class="feed_header">Hoạt động của tôi trên bảng tin bạn bè</h3>
+ <p class="text-xs text-mute">Tắt mục nào thì hoạt động đó của bạn sẽ không hiện lên bảng tin của bạn bè (vẫn xem được trên trang cá nhân của bạn).</p>
+ <div v-for="(label,k) in blk.feedLabels" :key="k" class="mi"><b class="flex-1 text-sm">{{ label }}</b><button class="btn !py-1 text-sm" :class="blk.feedPrefs[k]?'btn-g':'!bg-transparent border border-line'" @click="setFeedPref(k,!blk.feedPrefs[k])">{{ blk.feedPrefs[k]?'Đang hiện':'Đang ẩn' }}</button></div>
+</div>
+<div v-if="acct.admin&&tab==='sadm'" class="space-y-3">
+ <p><button type="button" class="btn btn-g w-full" @click="go('admin')">🛠️ Mở trang Quản trị (quản lý thành viên)</button></p>  <h3 class="feed_header">Quản lý trường hồ sơ mở rộng <span class="gray">(quản trị viên)</span></h3>
+ <div v-if="!pa.f" class="space-y-2">
+  <div v-for="f in pf.list" :key="f.id" class="mi !cursor-default">
+   <div class="flex-1 min-w-0"><div class="truncate font-semibold">{{ f.title }}<b v-if="f.required" style="color:#d64545"> *</b></div><div class="text-xs text-mute">{{ f.formtype==='select'?'Danh sách chọn':'Ô nhập' }} · tối đa {{ f.maxsize }}{{ f.invisible?' · ẩn':'' }}{{ f.allowsearch?' · tìm được':'' }}</div></div>
+   <input v-model.number="pa.order[f.id]" type="number" class="ip !w-16 !h-8" :aria-label="'Thứ tự của '+f.title">
+   <button type="button" class="btn !h-8 !bg-transparent !text-zb2 border border-line" @click="paEdit(f)">Sửa</button>
+   <button type="button" class="btn !h-8 !bg-transparent !text-[#d64545] border border-line" @click="paDel(f)">Xóa</button>
+  </div>
+  <p v-if="!pf.list.length" class="text-sm text-mute">Chưa có trường nào. Thêm trường (ví dụ: Sở thích, Nghề nghiệp, Facebook…) để người dùng điền trong Cài đặt.</p>
+  <div class="flex gap-2"><button type="button" class="btn btn-g flex-1" @click="paEdit(null)">＋ Thêm trường</button><button v-if="pf.list.length" type="button" class="btn flex-1 !bg-transparent !text-zb2 border border-line" :disabled="pa.busy" @click="paOrder">Cập nhật thứ tự</button></div>
+ </div>
+ <form v-else class="space-y-3" novalidate @submit.prevent="paSave">
+  <label class="block text-sm"><span class="text-mute">Tên trường</span><input v-model="pa.f.title" maxlength="50" class="ip mt-1"><small v-if="pa.err.title" style="color:#d64545">{{ pa.err.title }}</small></label>
+  <label class="block text-sm"><span class="text-mute">Mô tả / gợi ý</span><input v-model="pa.f.note" maxlength="100" class="ip mt-1"><small v-if="pa.err.note" style="color:#d64545">{{ pa.err.note }}</small></label>
+  <label class="block text-sm"><span class="text-mute">Kiểu nhập</span><select v-model="pa.f.formtype" class="ip mt-1"><option value="text">Ô nhập văn bản</option><option value="select">Danh sách chọn một</option></select></label>
+  <label v-if="pa.f.formtype==='select'" class="block text-sm"><span class="text-mute">Các lựa chọn (mỗi dòng một giá trị)</span><textarea v-model="pa.f.choice" rows="4" class="ip mt-1 resize-none" placeholder="Hà Nội&#10;TP. Hồ Chí Minh"></textarea><small v-if="pa.err.choice" style="color:#d64545">{{ pa.err.choice }}</small></label>
+  <label class="block text-sm"><span class="text-mute">Số ký tự tối đa (1–255)</span><input v-model.number="pa.f.maxsize" type="number" min="1" max="255" class="ip mt-1"></label>
+  <label class="block text-sm"><span class="text-mute">Thứ tự hiển thị</span><input v-model.number="pa.f.displayorder" type="number" class="ip mt-1"></label>
+  <label class="flex items-center gap-2 text-sm"><input type="checkbox" v-model="pa.f.required"> Bắt buộc điền</label>
+  <label class="flex items-center gap-2 text-sm"><input type="checkbox" v-model="pa.f.invisible"> Ẩn khỏi trang cá nhân (chỉ chủ tài khoản thấy)</label>
+  <label class="flex items-center gap-2 text-sm"><input type="checkbox" v-model="pa.f.allowsearch" :disabled="pa.f.invisible"> Cho phép tìm người theo trường này</label>
+  <p class="text-sm min-h-[1.25rem]" style="color:#d64545" role="alert">{{ pa.err.all }}</p>
+  <div class="flex gap-2"><button type="button" class="btn flex-1 !bg-transparent !text-mute border border-line" @click="pa.f=null">Hủy</button><button class="btn btn-g flex-1" :disabled="pa.busy">{{ pa.busy?'Đang lưu…':'Lưu trường' }}</button></div>
+ </form>
+</div>
+ <div id="theme-card" v-show="tab==='sth'" class="space-y-3">
+  <h3 class="feed_header">Chế độ hiển thị</h3>
+  <div class="grid grid-cols-3 gap-1 p-1 bg-bg" style="border-radius:var(--r-card,16px)" role="radiogroup" aria-label="Chế độ hiển thị">
+   <button v-for="m in MODES" :key="m[0]" type="button" role="radio" :aria-checked="dmode===m[0]" class="py-2.5 text-sm font-semibold transition" style="border-radius:var(--r-in,12px)" :style="dmode===m[0]?{background:'var(--card)',color:'var(--ink)',boxShadow:'0 1px 3px rgba(0,0,0,.18)'}:{color:'var(--mute)'}" @click="setMode(m[0])">{{ m[1] }} {{ m[2] }}</button>
+  </div>
+  <p class="text-xs text-mute">Tự động sẽ theo cài đặt sáng/tối của điện thoại. Lựa chọn lưu trên thiết bị này.</p>
+  <h3 class="feed_header">Màu chủ đề</h3>
+  <p class="text-sm text-mute">Chọn màu nhấn cho nút, liên kết và mục đang chọn trên toàn ứng dụng (lưu trên thiết bị này).</p>
+  <div class="flex flex-wrap gap-3" role="radiogroup" aria-label="Màu chủ đề">
+   <button v-for="c in ACS" :key="c.c" type="button" role="radio" :aria-checked="acc===c.c" :aria-label="c.n" :title="c.n" class="w-9 h-9 rounded-full grid place-items-center" :style="{background:c.c,outline:acc===c.c?'3px solid '+c.c:'none',outlineOffset:'2px'}" @click="setAcc(c.c)"><span v-if="acc===c.c" style="color:#fff;font-size:16px;line-height:1">✓</span></button>
+  </div>
+  <h3 class="feed_header">Giao diện trang cá nhân</h3>
+  <p class="text-sm text-mute">Chọn để xem thử ngay trên trang này, bấm Lưu để áp dụng. Bạn bè sẽ thấy giao diện này khi vào trang của bạn.</p>
+  <div class="grid grid-cols-2 sm:grid-cols-3 gap-2" role="radiogroup" aria-label="Giao diện">
+   <label v-for="t in THL" :key="t.id" class="block rounded-lg border p-1.5 cursor-pointer focus-within:ring-2 focus-within:ring-zb2" :class="th.sel===t.id?'border-zb2 ring-2 ring-zb2':'border-line'">
+    <input type="radio" class="sr-only" name="theme" :value="t.id" v-model="th.sel" @change="th.dirty=true;th.msg=''">
+    <span class="block h-14 rounded border border-line" :style="swStyle(t)"></span>
+    <span class="block text-sm font-semibold mt-1 truncate">{{ t.n }}</span>
+   </label>
+  </div>
+  <div v-if="th.sel==='custom'" class="flex flex-wrap gap-4 text-sm">
+   <label class="flex items-center gap-2">Màu nền <input type="color" v-model="th.bg" class="w-10 h-8 p-0 border border-line rounded" @input="th.dirty=true;th.msg=''"></label>
+   <label class="flex items-center gap-2">Màu chủ đạo <input type="color" v-model="th.accent" class="w-10 h-8 p-0 border border-line rounded" @input="th.dirty=true;th.msg=''"></label>
+  </div>
+  <label class="flex items-start gap-2 text-sm"><input type="checkbox" v-model="th.no" class="mt-1" @change="th.dirty=true;th.msg=''"><span><b>Không dùng giao diện của người khác</b><br><span class="text-mute">Khi vào trang của bạn bè, luôn hiện theo giao diện mặc định.</span></span></label>
+  <p class="text-sm min-h-[1.25rem]" :style="{color:th.err?'#d64545':'var(--zg)'}" role="status">{{ th.err||th.msg }}</p>
+  <button type="button" class="btn" :disabled="th.busy" @click="saveTheme">{{ th.busy?'Đang lưu…':'Lưu giao diện' }}</button>
+   <p class="text-xs text-mute pt-2">CoolAir v73</p>
+ </div>
+ <div v-show="tab==='ssec'" class="space-y-3">
+  <div class="card p-3 space-y-2" id="push-card">
+   <b class="text-sm">🔔 Thông báo đẩy</b>
+   <p class="text-xs text-mute">Nhận thông báo ngay trên điện thoại / máy tính khi có người nhắn tin, bình luận, nhắc tên bạn… kể cả lúc không mở CoolAir. Chỉ áp dụng cho thiết bị này.</p>
+   <p v-if="!pushUi.sup" class="text-xs" style="color:#e8a317">Trình duyệt này chưa hỗ trợ thông báo đẩy. Trên iPhone: bấm Chia sẻ → “Thêm vào Màn hình chính”, mở CoolAir từ biểu tượng đó rồi quay lại đây.</p>
+   <p v-else-if="pushUi.denied" class="text-xs" style="color:#e8a317">Bạn đã chặn thông báo cho trang này. Hãy mở lại quyền Thông báo trong cài đặt trình duyệt rồi tải lại trang.</p>
+   <div v-else class="flex items-center gap-2 flex-wrap"><button v-if="!pushUi.on" class="btn btn-g text-sm" :disabled="pushUi.busy" @click="pushOn">{{ pushUi.busy?'Đang bật…':'Bật thông báo đẩy' }}</button><button v-else class="btn !bg-transparent !text-ink border border-line text-sm" :disabled="pushUi.busy" @click="pushOff">Tắt trên thiết bị này</button><span v-if="pushUi.on" class="text-xs" style="color:var(--zg)">● Đang bật</span></div>
+   <p v-if="pushUi.err" class="text-xs" style="color:#d64545" role="alert">{{ pushUi.err }}</p>
+  </div>
+  <h3 class="feed_header">Bảo mật &amp; đăng nhập</h3>
+  <div class="text-sm"><span class="text-mute">Email</span><div class="mt-1 flex items-center gap-2 flex-wrap"><b class="break-all">{{ acct.email }}</b><span class="px-2 py-0.5 rounded text-xs font-semibold text-white" :style="{background:acct.verified?'var(--zg)':'#e8a317'}">{{ acct.verified?'Đã xác thực':'Chưa xác thực' }}</span></div></div>
+  <div class="text-sm"><span class="text-mute">Tên đăng nhập</span><div class="mt-1 font-semibold">{{ acct.username }}</div></div>
+  <div class="card p-3 space-y-2"><b class="text-sm">Đổi mật khẩu</b>
+   <input v-model="pw.cur" type="password" class="ip text-sm" placeholder="Mật khẩu hiện tại" autocomplete="current-password" aria-label="Mật khẩu hiện tại">
+   <input v-model="pw.nw" type="password" class="ip text-sm" placeholder="Mật khẩu mới (8+ ký tự, chữ và số)" autocomplete="new-password" aria-label="Mật khẩu mới">
+   <input v-model="pw.cf" type="password" class="ip text-sm" placeholder="Nhập lại mật khẩu mới" autocomplete="new-password" aria-label="Nhập lại mật khẩu mới">
+   <p v-if="pw.err" class="text-sm" style="color:#d64545" role="alert">{{ pw.err }}</p>
+   <p v-if="pw.ok" class="text-sm text-zg">{{ pw.ok }}</p>
+   <button class="btn btn-g text-sm" :disabled="pw.busy" @click="chPw">{{ pw.busy?'Đang đổi…':'Đổi mật khẩu' }}</button>
+   <p class="text-xs text-mute">Đổi mật khẩu sẽ đăng xuất phiên hiện tại, bạn cần đăng nhập lại.</p></div>
+  <div class="card p-3 space-y-2"><b class="text-sm">📱 Thiết bị đăng nhập</b>
+   <p class="text-xs text-mute">Các thiết bị đang đăng nhập tài khoản này. Nếu thấy thiết bị lạ, hãy thu hồi ngay.</p>
+   <p v-if="dev.err" class="text-xs" style="color:#d64545" role="alert">{{ dev.err }}</p>
+   <div v-if="dev.busy" class="text-xs text-mute">Đang tải…</div>
+   <ul v-else class="space-y-2">
+    <li v-for="s in dev.list" :key="s.sid" class="flex items-center gap-2 text-sm">
+     <div class="flex-1 min-w-0"><b>{{ s.device }}</b><span v-if="s.current" class="ml-1 px-1.5 py-0.5 rounded text-xs font-semibold text-white" style="background:var(--zg)">Thiết bị này</span>
+      <div class="text-xs text-mute truncate">{{ s.ip }} · đăng nhập {{ ago(s.createdAt) }}</div></div>
+     <button v-if="!s.current" class="btn !bg-transparent !text-ink border border-line text-xs" :disabled="dev.busy" @click="revokeDev(s.sid)">Thu hồi</button>
+    </li>
+   </ul>
+   <button v-if="dev.list.length>1" class="btn !bg-transparent text-sm" :disabled="dev.busy" @click="revokeOthers">{{ dev.busy?'Đang xử lý…':'Đăng xuất mọi thiết bị khác' }}</button></div>
+  <div class="card p-3 space-y-2"><b class="text-sm">🔐 Xác thực 2 bước (2FA)</b>
+   <p class="text-xs text-mute">Mỗi lần đăng nhập sẽ cần thêm mã 6 số từ app Google Authenticator (hoặc Authy, 1Password…). Kể cả lộ mật khẩu, kẻ khác vẫn không vào được tài khoản của bạn.</p>
+   <p v-if="tfa2.err" class="text-xs" style="color:#d64545" role="alert">{{ tfa2.err }}</p>
+   <p v-if="tfa2.ok" class="text-xs text-zg">{{ tfa2.ok }}</p>
+   <div v-if="acct.totpEnabled" class="space-y-2">
+    <p class="text-sm"><span class="px-2 py-0.5 rounded text-xs font-semibold text-white" style="background:var(--zg)">Đang bật</span></p>
+    <div class="flex gap-2 flex-wrap">
+     <button class="btn !bg-transparent text-sm" :disabled="tfa2.busy" @click="tfa2.showOff=true;tfa2.err='';tfa2.ok=''">Tắt 2FA</button>
+     <button class="btn !bg-transparent text-sm" :disabled="tfa2.busy" @click="tfa2.showBk=true;tfa2.err='';tfa2.ok=''">Tạo lại mã dự phòng</button>
+    </div></div>
+   <div v-else><button class="btn btn-g text-sm" :disabled="tfa2.busy" @click="tfaSetup">{{ tfa2.busy?'Đang xử lý…':'Bật xác thực 2 bước' }}</button></div></div>
+  <button class="btn !bg-transparent" @click="logout">Đăng xuất</button>
+ </div>
+</section>
+</div>
+ </div>
+ <div id="bottom"></div>
+</div>
+<div id="footer">
+ <p class="r_option"><a href="#" @click.prevent="toTop" title="TOP"><img src="/img/uch/top.gif" alt="" style="padding:5px 6px 6px"></a></p>
+ <p>CoolAir – Kết nối bạn bè · <a href="/api/rss.xml" target="_blank" rel="noopener" class="underline">📡 RSS nhật ký mới</a></p>
+ <p>Giao diện <b>NEO</b> v74d · Dựng bằng Vue</p>
+</div>
+</div>
+
+<!-- Chọc: hộp chọn hành động + thông báo -->
+<div v-if="pk.show" class="fixed inset-0 z-[120] grid place-items-center bg-black/50 p-4 overflow-y-auto" role="dialog" aria-labelledby="pk-t" @click.self="closePoke">
+ <form class="card w-full max-w-sm p-4 space-y-3" novalidate @submit.prevent="sendPoke" @keydown.esc="closePoke">
+  <div class="flex items-center gap-3"><c-av :name="pk.to.n" :src="pk.to.a" :size="44"></c-av><h2 id="pk-t" class="font-bold break-words min-w-0">{{ pk.reply?'Chọc lại ':'Chọc ' }}{{ pk.to.n }}</h2></div>
+  <div class="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Hành động">
+   <label v-for="(a,i) in PK" :key="i" class="flex items-center gap-2 px-2 py-1.5 rounded-md border text-sm cursor-pointer focus-within:ring-2 focus-within:ring-zb2" :class="pk.icon===i?'border-zb2 bg-bg font-semibold':'border-line'"><input type="radio" class="sr-only" :value="i" v-model="pk.icon"><img v-if="a[2]" :src="pkImg(a)" alt="" class="pkg"><span v-else class="text-lg">{{ a[0] }}</span>{{ a[1] }}</label>
+  </div>
+  <input v-model="pk.note" maxlength="25" class="ip" placeholder="Lời nhắn (không bắt buộc, tối đa 25 ký tự)" aria-label="Lời nhắn" @input="pk.err=''">
+  <p class="text-sm min-h-[1.25rem]" style="color:#d64545" role="alert">{{ pk.err }}</p>
+  <div class="flex gap-2"><button type="button" class="btn flex-1 !bg-transparent !text-mute border border-line" @click="closePoke">Hủy</button><button class="btn btn-g flex-1" :disabled="pk.busy">{{ pk.busy?'Đang gửi…':'Gửi 👋' }}</button></div>
+ </form>
+</div>
+<div v-if="pk.toast" class="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-[210] card px-4 py-2 text-sm shadow-lg" role="status">{{ pk.toast }}</div>
+
+<!-- Chat: popup (desktop) / toàn màn hình (mobile) -->
+<div v-if="call.st!=='idle'&&call.video&&call.st!=='ringing'" class="call-ov call-full fixed inset-0 z-[200] bg-black text-white flex flex-col">
+ <video ref="rv" autoplay playsinline class="absolute inset-0 w-full h-full object-cover bg-black"></video>
+ <div class="relative z-10 p-3 bg-gradient-to-b from-black/60 to-transparent"><div class="font-semibold truncate">🎥 {{ call.name }}</div><div class="text-xs opacity-80">{{ call.st==='calling'?'Đang gọi…':call.st==='connecting'?'Đang kết nối…':fmtSecs(call.secs) }}</div></div>
+ <video ref="lv" autoplay playsinline muted class="absolute z-10 right-3 bottom-28 w-24 md:w-36 aspect-[3/4] object-cover rounded-lg border border-white/40 bg-neutral-800" :class="{'opacity-30':!call.cam}" :style="call.front?'transform:scaleX(-1)':''"></video>
+ <div class="relative z-10 mt-auto p-4 flex justify-center gap-3 bg-gradient-to-t from-black/70 to-transparent" style="padding-bottom:max(1rem,env(safe-area-inset-bottom))">
+  <button v-if="call.st==='live'" @click="toggleMute" class="w-12 h-12 rounded-full bg-white/20 text-xl" :aria-label="call.muted?'Bật mic':'Tắt mic'">{{ call.muted?'🔇':'🎤' }}</button>
+  <button @click="toggleCam" class="w-12 h-12 rounded-full bg-white/20 text-xl" :aria-label="call.cam?'Tắt camera':'Bật camera'">{{ call.cam?'📷':'🚫' }}</button>
+  <button @click="flipCam" class="w-12 h-12 rounded-full bg-white/20 text-xl" aria-label="Đổi camera">🔄</button>
+  <button @click="endCall" class="w-12 h-12 rounded-full bg-[#d64545] text-xl" aria-label="Kết thúc">📞</button>
+ </div>
+</div>
+<div v-if="(call.st!=='idle'&&!(call.video&&call.st!=='ringing'))||call.err||rc" class="call-ov call-banner fixed top-2 left-1/2 -translate-x-1/2 z-[200] card px-4 py-3 w-[92vw] max-w-sm text-sm shadow-lg">
+ <div v-if="call.st==='idle'&&rc&&!call.err" class="text-center"><div class="mb-2">Cuộc gọi với {{ rc.n }} bị ngắt do tải lại trang.</div><div class="flex gap-2"><button class="btn flex-1" @click="redial">Gọi lại</button><button class="btn flex-1 !bg-transparent !text-mute border border-line" @click="dismissRc">Đóng</button></div></div>
+ <div v-else-if="call.st==='idle'" class="text-center">{{ call.err }}</div>
+ <template v-else>
+  <div class="font-semibold truncate">{{ call.video?'🎥':'📞' }} {{ call.name }}</div>
+  <div class="text-xs text-mute mb-2">{{ call.st==='calling'?'Đang gọi…':call.st==='ringing'?(call.video?'Cuộc gọi video đến…':'Cuộc gọi đến…'):call.st==='connecting'?'Đang kết nối…':fmtSecs(call.secs) }}</div>
+  <div class="flex gap-2">
+   <template v-if="call.st==='ringing'"><button class="btn btn-g flex-1" @click="answerCall">Trả lời</button><button class="btn flex-1 !bg-[#d64545]" @click="rejectCall">Từ chối</button></template>
+   <template v-else><button v-if="call.st==='live'" class="btn flex-1 !bg-transparent !text-mute border border-line" @click="toggleMute">{{ call.muted?'🔇 Bật mic':'🎤 Tắt mic' }}</button><button class="btn flex-1 !bg-[#d64545]" @click="endCall">Kết thúc</button></template>
+  </div>
+ </template>
+</div>
+<div v-if="chat.id" class="chat-pn fixed inset-0 md:inset-auto md:bottom-0 md:right-4 md:w-72 z-50 card !rounded-none md:!rounded-t-lg flex flex-col overflow-hidden" style="padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)">
+ <div class="chat-hd px-3 h-12 md:h-10 flex items-center shrink-0"><b class="flex-1 text-sm truncate">{{ chat.name }}<span v-if="onl[chat.id]" class="ml-1 text-xs font-normal opacity-80">● online</span></b><button v-if="call.st==='idle'" @click="tryCall(false)" aria-label="Gọi thoại" title="Gọi thoại" class="px-2" :class="{'opacity-50':!(rtOn&&onl[chat.id])}"><svg viewBox="0 0 24 24" aria-hidden="true"><path :d="IGI.phone"/></svg></button><button v-if="call.st==='idle'" @click="tryCall(true)" aria-label="Gọi video" title="Gọi video" class="px-2" :class="{'opacity-50':!(rtOn&&onl[chat.id])}"><svg viewBox="0 0 24 24" aria-hidden="true"><path :d="IGI.video"/></svg></button><button @click="closeChat" aria-label="Đóng" class="px-2"><svg viewBox="0 0 24 24" aria-hidden="true"><path :d="IGI.x"/></svg></button></div>
+ <div v-if="!rtOn" class="text-[11px] px-3 py-1 bg-bg text-mute shrink-0">⚠ Chưa kết nối realtime{{ rtErr?': '+rtErr:'…' }}</div>
+ <div ref="cm" class="flex-1 min-h-0 md:flex-none md:h-44 overflow-y-auto p-3 space-y-2 text-sm"><div v-if="!chat.msgs.length" class="text-center text-xs text-mute">Hãy gửi lời chào đầu tiên 👋</div><div v-for="m in chat.msgs" :key="m[2]" :class="{'text-right':m[0]==='me'}"><c-tx class="inline-block px-3 py-1 rounded-2xl text-left break-words max-w-[85%]" :class="m[0]==='me'?'bg-zb2 text-white':'bg-bg'" :t="m[1]"></c-tx></div><div v-if="chat.typing" class="text-xs text-mute italic">{{ chat.name }} đang soạn tin…</div></div>
+ <div class="chat-in"><c-emo @pick="e=>chat.txt+=e"></c-emo><input v-model="chat.txt" @input="typing" @keydown.enter="sendChat" maxlength="1000" class="ip" placeholder="Nhập tin nhắn..." aria-label="Nhập tin nhắn"><button type="button" aria-label="Gửi tin nhắn" @click="sendChat"><svg viewBox="0 0 24 24" aria-hidden="true"><path :d="IGI.msg"/></svg></button></div>
+</div>
+
+<!-- Bottom navigation (mobile, kiểu Instagram) -->
+<nav class="ig_nav" aria-label="Điều hướng chính">
+ <button v-for="b in igNav" :key="b.k" type="button" :class="[{on:b.on},b.k==='me'?'me':'']" :aria-label="b.l" :aria-current="b.on?'page':null" @click="igGo(b.k)">
+  <c-av v-if="b.k==='me'" :name="me" :src="acct.avatar" :size="28"></c-av>
+  <svg v-else viewBox="0 0 24 24" aria-hidden="true"><path :class="b.k==='home'?'hm':''" :d="IGI[b.k]"/></svg>
+  <b v-if="b.b" class="ig_bd">{{ b.b>99?'99+':b.b }}</b>
+ </button>
+</nav>
+<teleport to="body">
+ <div v-if="phv.src" class="fixed inset-0 z-[1000] bg-black/95 flex flex-col items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Xem ảnh gốc" @click.self="closePv()" @keydown.esc="closePv()">
+  <button type="button" class="absolute top-2 right-4 text-white text-3xl z-10" aria-label="Đóng" @click="closePv()">✕</button>
+  <img :src="phv.src" alt="" class="max-w-[96vw] max-h-[78vh] object-contain" draggable="false">
+  <div class="flex gap-2 mt-4 flex-wrap justify-center">
+   <label class="btn cursor-pointer !bg-white/10 !text-white border !border-white/30">📷 {{ phv.kind==='cover'?'Đổi ảnh bìa':'Đổi ảnh đại diện' }}<input type="file" accept="image/jpeg,image/png,image/webp,image/gif" class="hidden" @change="pvPick"></label>
+   <button type="button" class="btn !bg-transparent !text-white border !border-white/30" @click="pvRemove()">{{ phv.kind==='cover'?'Gỡ ảnh bìa':'Gỡ ảnh đại diện' }}</button>
+  </div>
+ </div>
+</teleport>
+</template>
+</div>
+
+<!-- Mã nguồn JS: src/ (entry src/main.js, Vite bundle). Vue lấy từ npm, không còn CDN. -->
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

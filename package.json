@@ -1,0 +1,41 @@
+{
+  "name": "coolair",
+  "version": "1.0.0",
+  "private": true,
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "node --watch app.js",
+    "csp:sync": "node scripts/sync-vercel-csp.js",
+    "test": "node --test test/*.test.js",
+    "dev:web": "vite",
+    "build": "vite build"
+  },
+  "engines": {
+    "node": ">=18.11"
+  },
+  "dependencies": {
+    "@sentry/node": "^11.6.0",
+    "@sentry/vue": "^11.6.0",
+    "ably": "^2.6.0",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "leaflet": "^1.9.4",
+    "mongoose": "^8.5.0",
+    "nodemailer": "^6.9.14",
+    "qrcode": "^1.5.4",
+    "twemoji": "^14.0.2"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.19",
+    "vite": "^5.4.11",
+    "vue": "^3.5.13"
+  }
+}
