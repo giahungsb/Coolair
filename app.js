@@ -51,7 +51,12 @@ app.use('/api', require('./server/routes/index.js'));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Không tìm thấy API.' }));
 
 // Chỉ có tác dụng khi chạy local. Trên Vercel cũng chính Express này phục vụ public/ (log type=function). JS build đặt đuôi .mjs để Vercel không đổi ESM->CommonJS.
-app.use(express.static(path.join(__dirname, 'public'), { setHeaders: (res, p) => { if (p.endsWith('.mjs')) res.setHeader('Content-Type', 'text/javascript; charset=utf-8'); } }));
+app.use(express.static(path.join(__dirname, 'public'), { setHeaders: (res, p) => {
+  if (p.endsWith('.mjs')) res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
+  // file /assets/ có hash trong tên -> cache vĩnh viễn; html / sw.js / theme-init.js / manifest luôn hỏi lại máy chủ (tránh giữ bản cũ sau deploy gây trắng màn)
+  if (/[\\/]assets[\\/]/.test(p)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  else if (/\.(html|js)$/.test(p) || /manifest\.json$/.test(p)) res.setHeader('Cache-Control', 'no-cache');
+} }));
 
 app.use((err, req, res, next) => {
   if (err.code === 11000) return res.status(409).json({ error: 'Dữ liệu đã tồn tại.' });

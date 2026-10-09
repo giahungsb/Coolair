@@ -55,6 +55,10 @@ try{var __m=localStorage.getItem('coolair_mode');if(__m==='light'||__m==='dark')
     }   // <script>/<link> 404, sai MIME, bị chặn
     else add((e.message||'Lỗi JS')+(e.filename?'\n'+e.filename+':'+e.lineno+':'+e.colno:''));
   },true);
-  addEventListener('unhandledrejection',function(e){var r=e.reason;add('Promise: '+((r&&(r.stack||r.message))||r))});
-  setTimeout(function(){if(!ok&&blank()){if(!errs.length)errs.push('Sau 10 giây app vẫn chưa hiện (file JS có thể bị 404 / sai MIME / mạng chậm).');show()}},10000);
+  addEventListener('unhandledrejection',function(e){
+    var r=e.reason,m=String((r&&(r.message||r.stack))||r);
+    // chunk JS nạp động bị 404 (trình duyệt giữ bản cũ sau deploy) -> tự gỡ SW + xóa cache + tải lại ĐÚNG 1 lần
+    if(/dynamically imported module|Importing a module script failed|Failed to fetch dynamically/i.test(m)){try{if(!sessionStorage.getItem(RK)){sessionStorage.setItem(RK,'1');wipe();return}}catch(_){}}
+    add('Promise: '+((r&&(r.stack||r.message))||r))});
+  setTimeout(function(){if(!ok&&blank()){try{if(!sessionStorage.getItem(RK)){sessionStorage.setItem(RK,'1');wipe();return}}catch(_){}if(!errs.length)errs.push('Sau 10 giây app vẫn chưa hiện (file JS có thể bị 404 / sai MIME / mạng chậm).');show()}},10000);
 })();

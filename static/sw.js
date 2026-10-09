@@ -1,6 +1,6 @@
 /* CoolAir service worker: (1) cache vỏ ứng dụng để mở nhanh + có trang báo mất mạng, (2) nhận & hiển thị thông báo đẩy.
    KHÔNG bao giờ cache /api/* (dữ liệu luôn lấy mới). Đổi số phiên bản V khi muốn buộc mọi máy tải lại tài nguyên tĩnh. */
-const V = 'coolair-v2';
+const V = 'coolair-v3';
 const STATIC = ['/neo.css', '/manifest.json', '/icons/icon-192.png', '/icons/icon-512.png', '/img/nologo.jpg'];
 const OFFLINE = '<!doctype html><html lang="vi"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CoolAir – Mất kết nối</title>'
   + '<body style="font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#fff;color:#333;text-align:center"><div style="padding:24px">'

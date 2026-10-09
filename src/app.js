@@ -647,7 +647,6 @@ const app=createApp({render:appRender,setup(){
  document.addEventListener('keydown',e=>{if(e.key==='Escape')nt.open=false});
  document.addEventListener('visibilitychange',()=>{if(!document.hidden)ntCount()});
  setInterval(()=>{if(authed.value&&acct.verified&&!document.hidden)ntCount()},120000);
- setInterval(()=>{if(authed.value&&acct.verified&&!document.hidden&&!rtOn.value)ntCount()},30000);   // realtime chưa bật / mất kết nối -> hỏi lại mỗi 30 giây thay vì 2 phút   // notify_ajax_refresh = 2 phút; có realtime thì cập nhật ngay
  boot();
  /* ----- Thông báo đẩy (Web Push) ----- */
  const pushUi=reactive({sup:('serviceWorker' in navigator)&&('PushManager' in window)&&('Notification' in window),on:false,busy:false,err:'',denied:false});
