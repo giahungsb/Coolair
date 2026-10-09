@@ -241,8 +241,8 @@
    <c-attach :att="att"></c-attach>
    <div class="flex flex-wrap items-center gap-1 mt-2">
     <c-emo @pick="emoPick"></c-emo>
-    <button type="button" class="gh" @click="checkIn" :title="att.loc&&att.loc.name?('Đã check-in: '+att.loc.name):'Check-in vị trí hiện tại'">📍 {{ att.loc?(att.loc.busy?'Đang lấy vị trí…':(att.loc.name||'Vị trí')):'Check-in' }}</button>
-    <button v-if="att.loc&&att.loc.name" type="button" class="gh" @click="att.loc=null" title="Xóa check-in">✕</button>
+    <button type="button" class="gh min-w-0 max-w-full truncate" @click="checkIn" :title="att.loc&&att.loc.name?('Đã check-in: '+att.loc.name):'Check-in vị trí hiện tại'">📍 {{ att.loc?(att.loc.busy?'Đang lấy vị trí…':(att.loc.name||'Vị trí')):'Check-in' }}</button>
+    <button v-if="att.loc&&att.loc.name" type="button" class="gh shrink-0" @click="att.loc=null" title="Xóa check-in">✕</button>
     <select v-model="vis" class="ip !w-auto !py-1.5 text-sm ml-auto" aria-label="Ai xem được bài này"><option value="public">Công khai</option><option value="friends">Bạn bè</option><option value="private">Chỉ mình tôi</option></select>
     <button class="btn btn-g" @click="pub();cmpOpen=false">Đăng</button>
    </div>
@@ -729,7 +729,7 @@
     <div class="borderbox post_doing mb-4">
      <textarea ref="st" v-mention v-model="draft" rows="3" class="ip resize-none" :placeholder="'Hôm nay bạn thế nào, '+me.split(' ').pop()+'?'"></textarea>
      <c-attach :att="att"></c-attach>
-     <div class="flex items-center gap-2 mt-2"><button type="button" class="gh" @click="checkIn" :title="att.loc&&att.loc.name?('Đã check-in: '+att.loc.name):'Check-in vị trí hiện tại'">📍 {{ att.loc?(att.loc.busy?'Đang lấy vị trí…':(att.loc.name||'Vị trí')):'Check-in' }}</button><button v-if="att.loc&&att.loc.name" type="button" class="gh" @click="att.loc=null" title="Xóa check-in">✕</button><select v-model="vis" class="ml-auto" aria-label="Ai xem được bài này"><option value="public">Công khai</option><option value="friends">Bạn bè</option><option value="private">Chỉ mình tôi</option></select><button class="btn" @click="pub">Đăng</button></div>
+     <div class="flex flex-wrap items-center gap-2 mt-2"><button type="button" class="gh min-w-0 max-w-full truncate" @click="checkIn" :title="att.loc&&att.loc.name?('Đã check-in: '+att.loc.name):'Check-in vị trí hiện tại'">📍 {{ att.loc?(att.loc.busy?'Đang lấy vị trí…':(att.loc.name||'Vị trí')):'Check-in' }}</button><button v-if="att.loc&&att.loc.name" type="button" class="gh shrink-0" @click="att.loc=null" title="Xóa check-in">✕</button><select v-model="vis" class="ml-auto" aria-label="Ai xem được bài này"><option value="public">Công khai</option><option value="friends">Bạn bè</option><option value="private">Chỉ mình tôi</option></select><button class="btn" @click="pub">Đăng</button></div>
     </div>
     <div id="space_info" class="mb-4">
      <h3 class="feed_header"><a href="#" class="r_option" @click.prevent="go('settings');tab='sp'">Sửa hồ sơ</a>Thông tin cá nhân</h3>

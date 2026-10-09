@@ -882,3 +882,7 @@ html body article.pst.card>.mt-3{margin-top:12px}
  #app.px .mi{padding:10px 12px;line-height:1.5}
  #mobile_main_menu a{line-height:1.5}
 }
+
+/* chống tràn ngang: nút check-in địa chỉ dài không được làm rộng cả trang */
+.post_doing,.cmp{min-width:0;max-width:100%}
+.post_doing .gh,.cmp .gh{max-width:100%}
