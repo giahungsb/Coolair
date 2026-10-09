@@ -854,28 +854,3 @@ html body article.pst.card>.mt-3{margin-top:12px}
 .tz .tzp.b{background:#E0457B}
 .tz .tzh:has(.tzp.b) .tzn{background:#E0457B}
 .tz .tzd{position:absolute;left:-24px;top:20px;width:12px;height:12px;border-radius:50%;box-sizing:border-box;background:var(--card);border:3px solid var(--zb2)}
-
-/* ===== MOBILE UI GỌN (2026-10-09): thanh nav dưới có label, menu gom nhóm, admin dropdown, nút bài icon-only, chữ thoáng ===== */
-@media(max-width:767px){
- /* 1. Bottom nav: icon + label nhỏ, touch target >=44px */
- .ig_nav button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:56px;min-width:44px}
- .ig_nav svg{width:24px;height:24px}
- .ig_nav .ig_lb{font-size:10px;font-weight:600;line-height:1.2;letter-spacing:.1px}
- .ig_nav button.on .ig_lb{font-weight:800}
- /* 2. Nút "Thêm" trong menu mobile */
- .mm_more{display:flex;align-items:center;justify-content:space-between;min-height:52px;padding:0 14px;border:0;border-radius:12px;background:none;font-size:16px;font-weight:600;color:var(--ink);text-align:left;width:100%}
- .mm_more:active{background:var(--bg)}
- .mm_chev{color:var(--mute);font-size:14px}
- /* 3. Admin: dropdown thay cho 15 tab trên mobile */
- .adm_tabs_m{display:block;width:100%;min-height:44px;margin:0 0 10px;padding:0 12px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);font-size:15px;font-weight:600}
- .adm_tabs{display:none!important}
- /* 4. Nút bài viết: chỉ icon + số, touch target 44px */
- .pst-a .pst-lb{display:none}
- .pst-a .gh{min-height:44px;min-width:44px;padding:6px 10px;font-size:15px}
- /* 5. Chữ thoáng: line-height + padding list, font tối thiểu 14px */
- #app.px{font-size:14px}
- #app.px article.pst .pst-t{line-height:1.65;font-size:15px}
- #app.px .spacemenu_list li{padding:10px 4px;line-height:1.6}
- #app.px .mi{padding:10px 12px;line-height:1.5}
- #mobile_main_menu a{line-height:1.5}
-}
