@@ -128,9 +128,9 @@ template:`<article class="card p-4 pst">
 </div></teleport>
 <div class="flex items-center gap-1 mt-3 pt-2 border-t border-line text-sm pst-a">
  <span class="relative group"><span class="hidden group-hover:flex absolute -top-11 left-0 card px-2 py-1 gap-2 text-xl z-10"><button v-for="r in R" :key="r" @click="react(r)">{{ r }}</button></span>
- <button class="gh" :class="post.k&&'on !shadow-none'" @click="react('👍')">{{ post.k||'👍' }} Thích · {{ post.l+(post.k?1:0) }}</button></span>
- <button class="gh" @click="open=!open">💬 Bình luận · {{ post.c.length }}</button>
- <button class="gh" @click="shOpen=!shOpen" title="Chia sẻ lên tường của bạn">🔁 Chia sẻ</button>
+ <button class="gh" :class="post.k&&'on !shadow-none'" @click="react('👍')">{{ post.k||'👍' }}<span class="pst-lb"> Thích ·</span> {{ post.l+(post.k?1:0) }}</button></span>
+ <button class="gh" @click="open=!open">💬<span class="pst-lb"> Bình luận ·</span> {{ post.c.length }}</button>
+ <button class="gh" @click="shOpen=!shOpen" title="Chia sẻ lên tường của bạn">🔁<span class="pst-lb"> Chia sẻ</span></button>
  <button v-if="!post.mine" class="gh" @click="rpOpen=!rpOpen" title="Tố cáo bài viết">⚠️</button>
 </div>
 <div v-if="shOpen" class="mt-2 card p-3 space-y-2">

@@ -146,8 +146,12 @@
  <a href="#" id="mobile_header_notification" :aria-label="nt.unseen?('Thông báo ('+nt.unseen+' mới)'):'Thông báo'" @click.prevent="mm=false;go('notifications')"><svg viewBox="0 0 24 24" aria-hidden="true"><path :d="IGI.bell"/></svg><b v-if="nt.unseen" class="mh_badge">{{ nt.unseen>99?'99+':nt.unseen }}</b></a>
 </div>
 <nav v-if="mm" id="mobile_main_menu" aria-label="Menu chính">
- <div class="mm_top"><b>Menu</b><button type="button" aria-label="Đóng menu" @click="mm=false"><svg viewBox="0 0 24 24" aria-hidden="true"><path :d="IGI.x"/></svg></button></div>
- <a v-for="m in mmItems" :key="m.k" href="#" @click.prevent="mmGo(m)"><span class="mm_i">{{ m.e }}</span>{{ m.l }}<b v-if="m.n" class="mh_badge">{{ m.n>99?'99+':m.n }}</b></a>
+ <div class="mm_top"><b>Menu</b><button type="button" aria-label="Đóng menu" @click="mm=false;mmMore=false"><svg viewBox="0 0 24 24" aria-hidden="true"><path :d="IGI.x"/></svg></button></div>
+ <a v-for="m in mmMain" :key="m.k" href="#" @click.prevent="mmGo(m)"><span class="mm_i">{{ m.e }}</span>{{ m.l }}<b v-if="m.n" class="mh_badge">{{ m.n>99?'99+':m.n }}</b></a>
+ <button type="button" class="mm_more" :aria-expanded="mmMore" @click="mmMore=!mmMore"><span>⋯ Thêm</span><span class="mm_chev">{{ mmMore?'▴':'▾' }}</span></button>
+ <template v-if="mmMore">
+  <a v-for="m in mmRest" :key="m.k" href="#" @click.prevent="mmGo(m)"><span class="mm_i">{{ m.e }}</span>{{ m.l }}<b v-if="m.n" class="mh_badge">{{ m.n>99?'99+':m.n }}</b></a>
+ </template>
 </nav>
 <div id="mobile_search">
  <input v-model="q" type="search" placeholder="Tìm trong bạn bè..." aria-label="Tìm trong bạn bè" @focus="sf=true" @blur="sf=false">
@@ -262,7 +266,10 @@
 <!-- ===== QUẢN TRỊ: quản lý thành viên (admincp user/browse + ban) ===== -->
 <section v-else-if="view==='admin'&&acct.admin" class="space-y-3">
  <h2 class="title"><img src="/img/uch/app/setting.gif" alt="">Quản trị</h2>
- <div class="tabs_header"><button type="button" class="uc-tab" :class="{on:adm.tab==='stats'}" @click="admTab('stats')"><span>Thống kê</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='users'}" @click="admTab('users')"><span>Thành viên</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='reports'}" @click="admTab('reports')"><span>Tố cáo</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='mod'}" @click="admTab('mod')"><span>Kiểm duyệt</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='censor'}" @click="admTab('censor')"><span>Từ cấm</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='credit'}" @click="admTab('credit')"><span>Điểm & NV</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='hot'}" @click="admTab('hot')"><span>Nổi bật</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='ip'}" @click="admTab('ip')"><span>Chặn IP</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='logs'}" @click="admTab('logs')"><span>Nhật ký</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='cfg'}" @click="admTab('cfg')"><span>Cấu hình</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='grp'}" @click="admTab('grp')"><span>Nhóm quyền</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='topics'}" @click="admTab('topics')"><span>Chủ đề</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='magic'}" @click="admTab('magic')"><span>Đạo cụ</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='pfx'}" @click="admTab('pfx')"><span>Danh mục</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='cmap'}" @click="admTab('cmap')"><span>Bản đồ</span></button></div>
+ <select class="adm_tabs_m" aria-label="Chọn mục quản trị" :value="adm.tab" @change="admTab($event.target.value)">
+  <option value="stats">📊 Thống kê</option><option value="users">👥 Thành viên</option><option value="reports">🚩 Tố cáo</option><option value="mod">🛡️ Kiểm duyệt</option><option value="censor">🚫 Từ cấm</option><option value="credit">⭐ Điểm & NV</option><option value="hot">🔥 Nổi bật</option><option value="ip">⛔ Chặn IP</option><option value="logs">📝 Nhật ký</option><option value="cfg">⚙️ Cấu hình</option><option value="grp">👪 Nhóm quyền</option><option value="topics">📑 Chủ đề</option><option value="magic">🎁 Đạo cụ</option><option value="pfx">🗂️ Danh mục</option><option value="cmap">🗺️ Bản đồ</option>
+ </select>
+ <div class="tabs_header adm_tabs"><button type="button" class="uc-tab" :class="{on:adm.tab==='stats'}" @click="admTab('stats')"><span>Thống kê</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='users'}" @click="admTab('users')"><span>Thành viên</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='reports'}" @click="admTab('reports')"><span>Tố cáo</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='mod'}" @click="admTab('mod')"><span>Kiểm duyệt</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='censor'}" @click="admTab('censor')"><span>Từ cấm</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='credit'}" @click="admTab('credit')"><span>Điểm & NV</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='hot'}" @click="admTab('hot')"><span>Nổi bật</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='ip'}" @click="admTab('ip')"><span>Chặn IP</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='logs'}" @click="admTab('logs')"><span>Nhật ký</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='cfg'}" @click="admTab('cfg')"><span>Cấu hình</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='grp'}" @click="admTab('grp')"><span>Nhóm quyền</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='topics'}" @click="admTab('topics')"><span>Chủ đề</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='magic'}" @click="admTab('magic')"><span>Đạo cụ</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='pfx'}" @click="admTab('pfx')"><span>Danh mục</span></button><button type="button" class="uc-tab" :class="{on:adm.tab==='cmap'}" @click="admTab('cmap')"><span>Bản đồ</span></button></div>
  <!-- ===== Bản đồ check-in nhóm ===== -->
  <template v-if="adm.tab==='cmap'"><c-admin-map></c-admin-map></template>
  <!-- ===== Thống kê ===== -->
@@ -1496,8 +1503,9 @@
 <!-- Bottom navigation (mobile, kiểu Instagram) -->
 <nav class="ig_nav" aria-label="Điều hướng chính">
  <button v-for="b in igNav" :key="b.k" type="button" :class="[{on:b.on},b.k==='me'?'me':'']" :aria-label="b.l" :aria-current="b.on?'page':null" @click="igGo(b.k)">
-  <c-av v-if="b.k==='me'" :name="me" :src="acct.avatar" :size="28"></c-av>
+  <c-av v-if="b.k==='me'" :name="me" :src="acct.avatar" :size="26"></c-av>
   <svg v-else viewBox="0 0 24 24" aria-hidden="true"><path :class="b.k==='home'?'hm':''" :d="IGI[b.k]"/></svg>
+  <span class="ig_lb">{{ b.l }}</span>
   <b v-if="b.b" class="ig_bd">{{ b.b>99?'99+':b.b }}</b>
  </button>
 </nav>
