@@ -93,7 +93,7 @@
 <div v-if="fp.show" class="fixed inset-0 z-[150] grid place-items-center bg-bg p-4 overflow-y-auto" role="dialog" aria-labelledby="fp-t">
  <form class="card w-full max-w-sm p-6 text-center space-y-3" novalidate @submit.prevent="fp.step===1?fpSend():fpReset()">
   <div class="mx-auto grid place-items-center w-14 h-14 rounded-2xl bg-zg text-white"><c-ic n="lock" cls="w-8 h-8"></c-ic></div>
-  <h2 id="fp-t" class="text-xl font-bold">Quên mật khẩu</h2>
+  <h2 id="fp-t" class="text-xl font-bold">{{ acct.noPassword?'Đặt mật khẩu':'Quên mật khẩu' }}</h2>
   <template v-if="fp.step===1">
    <p class="text-sm text-mute">Nhập email đã đăng ký, chúng tôi sẽ gửi mã 10 chữ số để đặt lại mật khẩu.</p>
    <input v-model="fp.email" type="email" class="ip" autocomplete="email" placeholder="Email của bạn" aria-label="Email" @input="fp.err=''">
@@ -1415,7 +1415,11 @@
   <h3 class="feed_header">Bảo mật &amp; đăng nhập</h3>
   <div class="text-sm"><span class="text-mute">Email</span><div class="mt-1 flex items-center gap-2 flex-wrap"><b class="break-all">{{ acct.email }}</b><span class="px-2 py-0.5 rounded text-xs font-semibold text-white" :style="{background:acct.verified?'var(--zg)':'#e8a317'}">{{ acct.verified?'Đã xác thực':'Chưa xác thực' }}</span></div></div>
   <div class="text-sm"><span class="text-mute">Tên đăng nhập</span><div class="mt-1 font-semibold">{{ acct.username }}</div></div>
-  <div class="card p-3 space-y-2"><b class="text-sm">Đổi mật khẩu</b>
+  <div class="card p-3 space-y-2" v-if="acct.noPassword"><b class="text-sm">Đặt mật khẩu</b>
+   <p class="text-xs text-mute">Tài khoản này được tạo bằng Discord nên chưa có mật khẩu. Hãy đặt mật khẩu để vẫn vào được CoolAir khi không dùng Discord. Chúng tôi sẽ gửi mã 10 chữ số tới <b class="break-all">{{ acct.email }}</b>.</p>
+   <button class="btn btn-g text-sm" @click="dcSetPw">Gửi mã đặt mật khẩu qua email</button>
+   <p class="text-xs text-mute">Đặt xong bạn sẽ được đăng xuất và đăng nhập lại bằng mật khẩu mới.</p></div>
+  <div class="card p-3 space-y-2" v-else><b class="text-sm">Đổi mật khẩu</b>
    <input v-model="pw.cur" type="password" class="ip text-sm" placeholder="Mật khẩu hiện tại" autocomplete="current-password" aria-label="Mật khẩu hiện tại">
    <input v-model="pw.nw" type="password" class="ip text-sm" placeholder="Mật khẩu mới (8+ ký tự, chữ và số)" autocomplete="new-password" aria-label="Mật khẩu mới">
    <input v-model="pw.cf" type="password" class="ip text-sm" placeholder="Nhập lại mật khẩu mới" autocomplete="new-password" aria-label="Nhập lại mật khẩu mới">

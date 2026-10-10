@@ -38,7 +38,7 @@ const avatarUrl = (d) => /^(a_)?[a-f0-9]{32}$/.test(String(d.avatar || '')) ? `h
 const setAvatarIfEmpty = (uid, d) => { const a = avatarUrl(d); return a ? User.updateOne({ _id: uid, $or: [{ avatar: '' }, { avatar: { $exists: false } }] }, { avatar: a }) : null; };
 
 // Hoàn tất đăng nhập cho tài khoản u: 2FA -> chuyển #hash chứa token tạm; không 2FA -> cấp cookie phiên
-const finish = async (req, res, u) => {
+const finish = async (req, res, u, isNew) => {
   if (u.banned) return back(res, 'banned');
   if (u.totpEnabled) {   // giống /auth/login: CHƯA cấp phiên thật, chỉ cấp token tạm 5 phút (purpose:'totp') để nhập mã 2FA
     const t = jwt.sign({ id: u.id, purpose: 'totp' }, process.env.JWT_SECRET, { algorithm: 'HS256', expiresIn: '5m' });
@@ -46,7 +46,7 @@ const finish = async (req, res, u) => {
   }
   await User.updateOne({ _id: u._id }, { lastLogin: new Date(), lastSeen: new Date() }); award(u._id, 'login');
   setCookie(res, await newLogin(req, u));
-  res.redirect('/');
+  res.redirect(isNew ? '/#discord=welcome' : '/');   // tài khoản mới: frontend nhắc đặt mật khẩu
 };
 
 module.exports = (router) => {
@@ -124,6 +124,7 @@ module.exports = (router) => {
         await setAvatarIfEmpty(u._id, d);
       }
     }
+    let isNew = false;
     if (!u) {   // tạo tài khoản mới
       if (!email) return back(res, 'noemail');   // schema cần email duy nhất; Discord chưa xác thực email thì không tạo được
       if (ADMINS.includes(email)) return back(res, 'fail');   // giống /auth/register: email quản trị chỉ vào được qua tài khoản có sẵn
@@ -135,9 +136,10 @@ module.exports = (router) => {
       if (name.length < 2) name = username;
       try {
         u = await User.create({ name, email, username, discordId: d.id, avatar: avatarUrl(d), verified: true, noPassword: true, password: await bcrypt.hash(rnd(32), 12) });
+        isNew = true;
       } catch { return back(res, 'fail'); }   // trùng khóa do 2 request song song
     }
-    await finish(req, res, u);
+    await finish(req, res, u, isNew);
   }));
 
   // Hủy liên kết: tài khoản tạo bằng Discord (chưa đặt mật khẩu) phải đặt mật khẩu qua "Quên mật khẩu" trước, kẻo mất đường vào
@@ -145,7 +147,7 @@ module.exports = (router) => {
     const u = await User.findById(req.uid);
     if (!u) return res.status(401).json({ error: 'Tài khoản không tồn tại.' });
     if (!u.discordId) return fail(res, 'Tài khoản chưa liên kết Discord.');
-    if (u.noPassword) return fail(res, 'Bạn chưa đặt mật khẩu cho tài khoản này. Hãy dùng "Quên mật khẩu" ở trang đăng nhập để đặt mật khẩu trước khi hủy liên kết.');
+    if (u.noPassword) return fail(res, 'Bạn chưa đặt mật khẩu cho tài khoản này. Hãy vào Cài đặt > "Đặt mật khẩu" (mã gửi qua email) trước khi hủy liên kết.');
     await User.updateOne({ _id: u._id }, { $unset: { discordId: 1 } });
     res.json({ ok: true });
   }));
