@@ -5,8 +5,10 @@ const social = require('./social'), N = require('./notify');
 const { cloud } = require('./upload'), media = require('./media');
 
 module.exports = (router, { auth, wrap, fail, S, isAdmin }) => {
+  const ROOTS = (process.env.ADMIN_EMAILS || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+  const isRoot = (u) => !!u && ROOTS.includes(String(u.email || '').toLowerCase());
   const adminOnly = wrap(async (req, res, next) => {
-    const u = await User.findById(req.uid).select('email');
+    const u = await User.findById(req.uid).select('email siteAdmin');
     if (!u || !isAdmin(u)) return fail(res, 'Chỉ quản trị viên mới dùng được chức năng này.', null, 403);
     next();
   });
@@ -14,7 +16,7 @@ module.exports = (router, { auth, wrap, fail, S, isAdmin }) => {
   const row = (u, me) => ({
     id: u.id, name: u.name, username: u.username, email: u.email, avatar: u.avatar || '', verified: u.verified !== false, blueTick: !!u.blueTick,
     banned: !!u.banned, banReason: u.banReason || '', bannedAt: u.bannedAt || null, joined: u.createdAt,
-    lastLogin: u.lastLogin || null, lastSeen: u.lastSeen || null, admin: isAdmin(u), self: String(u._id) === String(me),
+    lastLogin: u.lastLogin || null, lastSeen: u.lastSeen || null, admin: isAdmin(u), siteAdmin: !!u.siteAdmin, root: isRoot(u), self: String(u._id) === String(me),
   });
   const day = () => new Date(Date.now() - 24 * 3600 * 1000);
   const FILTERS = { banned: { banned: true }, unverified: { verified: false }, recent: null };
@@ -91,6 +93,22 @@ module.exports = (router, { auth, wrap, fail, S, isAdmin }) => {
     u.blueTick = !u.blueTick;
     await u.save();
     require('./aconfig').alog(req.uid, u.blueTick ? 'tick_grant' : 'tick_revoke', u.username);
+    res.json({ user: row(u, req.uid) });
+  }));
+
+  // Cấp / gỡ quyền Admin (lưu trong DB, không cần sửa ADMIN_EMAILS). Chỉ admin gốc (email trong ADMIN_EMAILS) được làm việc này.
+  router.post('/admin/users/:id/admin', auth, adminOnly, wrap(async (req, res) => {
+    const me = await User.findById(req.uid).select('email');
+    if (!isRoot(me)) return fail(res, 'Chỉ quản trị viên gốc mới cấp / gỡ quyền Admin.', null, 403);
+    const u = await target(req, res); if (!u) return;
+    if (String(u._id) === String(req.uid) || isRoot(u)) return fail(res, 'Không thể thao tác trên tài khoản quản trị viên gốc / chính bạn.');
+    if (!u.siteAdmin) {   // cấp: chỉ cho tài khoản đã xác thực email, chưa bị khóa
+      if (u.verified === false) return fail(res, 'Tài khoản chưa xác thực email, không thể cấp quyền Admin.');
+      if (u.banned) return fail(res, 'Tài khoản đang bị khóa, không thể cấp quyền Admin.');
+    }
+    u.siteAdmin = !u.siteAdmin;
+    await u.save();
+    require('./aconfig').alog(req.uid, u.siteAdmin ? 'admin_grant' : 'admin_revoke', u.username);
     res.json({ user: row(u, req.uid) });
   }));
 

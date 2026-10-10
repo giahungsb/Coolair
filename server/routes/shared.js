@@ -23,7 +23,8 @@ const { award, completeTask } = require('../credit');   // điểm tín dụng +
 const { filter: censorFilter } = require('../censor');   // bộ lọc từ cấm
 const ageOf = (b) => { if (!b) return null; const n = new Date(); let a = n.getFullYear() - b.getUTCFullYear(); if (n < new Date(n.getFullYear(), b.getUTCMonth(), b.getUTCDate())) a--; return a; };
 const ADMINS = (process.env.ADMIN_EMAILS || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);   // quản trị viên = email nằm trong ADMIN_EMAILS
-const isAdmin = (u) => ADMINS.includes(u.email);
+const isRoot = (u) => !!u && ADMINS.includes(String(u.email || '').toLowerCase());   // admin gốc (ADMIN_EMAILS): được cấp/gỡ quyền admin cho người khác
+const isAdmin = (u) => !!u && (isRoot(u) || u.siteAdmin === true);   // admin gốc hoặc admin được cấp trong DB
 const extraOf = (u) => (u.extra ? Object.fromEntries(u.extra) : {});
 const fxOf = (u) => {   // hiệu ứng đạo cụ đang có hiệu lực (để frontend hiển thị)
   const out = {}, now = Date.now();
@@ -37,7 +38,7 @@ const pub = (u) => ({ id: u.id, name: u.name, email: u.email, username: u.userna
   totpEnabled: !!u.totpEnabled,
   phone: u.phone || '', birthday: u.birthday ? u.birthday.toISOString().slice(0, 10) : '', age: ageOf(u.birthday),
   location: u.location || '', bio: u.bio || '', avatar: u.avatar || '', cover: u.cover || '', coverPos: u.coverPos || '50% 50%', joined: u.createdAt, mood: u.mood || '',
-  theme: { id: u.theme || '', bg: u.themeBg || '', accent: u.themeAccent || '' }, noTheme: !!u.noTheme, admin: isAdmin(u), extra: extraOf(u), fx: fxOf(u) });
+  theme: { id: u.theme || '', bg: u.themeBg || '', accent: u.themeAccent || '' }, noTheme: !!u.noTheme, admin: isAdmin(u), root: isRoot(u), extra: extraOf(u), fx: fxOf(u) });
 
 const limiter = rateLimit({ store: rlStore('routes.limiter'), windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false,
   message: { error: 'Thử quá nhiều lần, vui lòng đợi 15 phút.' } });

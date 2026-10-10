@@ -16,7 +16,7 @@ module.exports = (router, { auth, wrap, fail, S, N, isAdmin, alog }) => {
   const oid = (id) => (isValidObjectId(id) ? id : null);
   const bad = (res, msg = 'Không tìm thấy.') => fail(res, msg, null, 404);
   const adminOnly = wrap(async (req, res, next) => {
-    const u = await User.findById(req.uid).select('email');
+    const u = await User.findById(req.uid).select('email siteAdmin');
     if (!u || !isAdmin(u)) return fail(res, 'Bạn không có quyền quản trị.', null, 403);
     req.me = u; next();
   });
@@ -24,7 +24,7 @@ module.exports = (router, { auth, wrap, fail, S, N, isAdmin, alog }) => {
   const canMod = async (forum, uid) => {
     if (!forum) return false;
     if ((forum.moderators || []).some((m) => String(m) === String(uid))) return true;
-    const u = await User.findById(uid).select('email');
+    const u = await User.findById(uid).select('email siteAdmin');
     return !!(u && isAdmin(u));
   };
   const tView = (t, forum) => ({ id: String(t._id), forum: forum ? { id: String(forum._id), name: forum.name } : undefined,

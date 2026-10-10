@@ -17,7 +17,7 @@ module.exports = (router, { S, wrap, fail, isAdmin, areFriends, N }) => {
   /* ===== Quyền: tính "grade" của người dùng trong một nhóm (getmtag của UCHome) ===== */
   // -9 không phải thành viên, -2 chờ duyệt, -1 bị cấm, 0 thường, 1 sao, 8 phó nhóm, 9 chủ nhóm (quản trị viên hệ thống luôn = 9)
   const access = async (req, g) => {
-    const me = await User.findById(req.uid).select('email');
+    const me = await User.findById(req.uid).select('email siteAdmin');
     const sysAdmin = !!me && isAdmin(me);
     const m = await GroupMember.findOne({ group: g._id, user: req.uid });
     let grade = m ? m.grade : -9;
@@ -64,7 +64,7 @@ module.exports = (router, { S, wrap, fail, isAdmin, areFriends, N }) => {
 
   /* ===== Chuyên mục (profield) ===== */
   const adminOnly = wrap(async (req, res, next) => {
-    const u = await User.findById(req.uid).select('email');
+    const u = await User.findById(req.uid).select('email siteAdmin');
     if (!u || !isAdmin(u)) return fl(res, 'Chỉ quản trị viên mới dùng được chức năng này.', 403);
     next();
   });

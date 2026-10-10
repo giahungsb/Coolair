@@ -19,7 +19,7 @@ module.exports = (router, { auth, wrap, fail, S, N, isAdmin, alog }) => {
   const oid = (id) => (isValidObjectId(id) ? id : null);
   const bad = (res, msg = 'Không tìm thấy.') => fail(res, msg, null, 404);
   const adminOnly = wrap(async (req, res, next) => {
-    const u = await User.findById(req.uid).select('email');
+    const u = await User.findById(req.uid).select('email siteAdmin');
     if (!u || !isAdmin(u)) return fail(res, 'Bạn không có quyền quản trị.', null, 403);
     next();
   });
@@ -173,7 +173,7 @@ module.exports = (router, { auth, wrap, fail, S, N, isAdmin, alog }) => {
   router.delete('/bulletins/:id', auth, wrap(async (req, res) => {
     const b = oid(req.params.id) && await Bulletin.findById(req.params.id).select('_id author');
     if (!b) return bad(res, 'Không tìm thấy bản tin.');
-    const me = await User.findById(req.uid).select('email');
+    const me = await User.findById(req.uid).select('email siteAdmin');
     if (String(b.author) !== req.uid && !(me && isAdmin(me))) return fail(res, 'Bạn không có quyền xóa.', null, 403);
     await b.deleteOne(); res.json({ ok: true });
   }));
@@ -344,7 +344,7 @@ module.exports = (router, { auth, wrap, fail, S, N, isAdmin, alog }) => {
   router.delete('/shoutbox/:id', auth, wrap(async (req, res) => {
     const s = oid(req.params.id) && await Shout.findById(req.params.id).select('_id user');
     if (!s) return bad(res, 'Không tìm thấy tin nhắn.');
-    const me = await User.findById(req.uid).select('email');
+    const me = await User.findById(req.uid).select('email siteAdmin');
     if (String(s.user) !== req.uid && !(me && isAdmin(me))) return fail(res, 'Bạn không có quyền xóa.', null, 403);
     await s.deleteOne(); res.json({ ok: true });
   }));
@@ -390,7 +390,7 @@ module.exports = (router, { auth, wrap, fail, S, N, isAdmin, alog }) => {
   router.delete('/links/:id', auth, wrap(async (req, res) => {
     const l = oid(req.params.id) && await Link.findById(req.params.id).select('_id owner');
     if (!l) return bad(res, 'Không tìm thấy liên kết.');
-    const me = await User.findById(req.uid).select('email');
+    const me = await User.findById(req.uid).select('email siteAdmin');
     if (String(l.owner) !== req.uid && !(me && isAdmin(me))) return fail(res, 'Bạn không có quyền xóa.', null, 403);
     await l.deleteOne(); res.json({ ok: true });
   }));

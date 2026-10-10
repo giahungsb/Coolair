@@ -12,7 +12,7 @@ const ATTACHABLE = { post: Post, blog: Blog, doing: Doing };
 
 module.exports = (router, { auth, wrap, fail, S, isAdmin }) => {
   const adminOnly = wrap(async (req, res, next) => {
-    const u = await User.findById(req.uid).select('email');
+    const u = await User.findById(req.uid).select('email siteAdmin');
     if (!u || !isAdmin(u)) return fail(res, 'Bạn không có quyền quản trị.', null, 403);
     next();
   });
@@ -23,7 +23,7 @@ module.exports = (router, { auth, wrap, fail, S, isAdmin }) => {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1), per = 20;
     const mine = await TopicMember.find({ user: req.uid }).select('topic').lean();
     const joined = new Set(mine.map((m) => String(m.topic)));
-    const isAdm = await User.findById(req.uid).select('email').lean().then((u) => isAdmin(u));
+    const isAdm = await User.findById(req.uid).select('email siteAdmin').lean().then((u) => isAdmin(u));
     const q = (isAdm && S(req.query.all) === '1') ? {} : { closed: { $ne: true } };
     const [total, rows] = await Promise.all([
       Topic.countDocuments(q),
@@ -79,7 +79,7 @@ module.exports = (router, { auth, wrap, fail, S, isAdmin }) => {
     const t = isValidObjectId(req.params.id) ? await Topic.findById(req.params.id).lean() : null;
     if (!t) return fail(res, 'Không tìm thấy chủ đề.', null, 404);
     if (t.closed) {   // chủ đề đã đóng: chỉ admin xem được (danh sách đã ẩn)
-      const me = await User.findById(req.uid).select('email').lean();
+      const me = await User.findById(req.uid).select('email siteAdmin').lean();
       if (!isAdmin(me)) return fail(res, 'Không tìm thấy chủ đề.', null, 404);
     }
     const joined = await TopicMember.exists({ topic: t._id, user: req.uid });
@@ -117,7 +117,7 @@ module.exports = (router, { auth, wrap, fail, S, isAdmin }) => {
     const a = isValidObjectId(req.params.aid) ? await TopicPost.findById(req.params.aid) : null;
     if (!a || String(a.topic) !== req.params.id) return fail(res, 'Không tìm thấy.', null, 404);
     const t = await Topic.findById(a.topic).lean();
-    const me = await User.findById(req.uid).select('email').lean();
+    const me = await User.findById(req.uid).select('email siteAdmin').lean();
     if (String(a.author) !== req.uid && !isAdmin(me)) return fail(res, 'Bạn không có quyền gỡ.', null, 403);
     await a.deleteOne();
     await Topic.updateOne({ _id: a.topic }, { $inc: { postNum: -1 } });

@@ -17,7 +17,7 @@ module.exports = (router, { auth, wrap, fail, S, N, isAdmin, alog }) => {
   const oid = (id) => (isValidObjectId(id) ? id : null);
   const bad = (res, msg = 'Không tìm thấy.') => fail(res, msg, null, 404);
   const adminOnly = wrap(async (req, res, next) => {
-    const u = await User.findById(req.uid).select('email');
+    const u = await User.findById(req.uid).select('email siteAdmin');
     if (!u || !isAdmin(u)) return fail(res, 'Bạn không có quyền quản trị.', null, 403);
     next();
   });
@@ -99,7 +99,7 @@ module.exports = (router, { auth, wrap, fail, S, N, isAdmin, alog }) => {
     if (!v) return bad(res, 'Không tìm thấy video.');
     const c = (v.comments || []).id(req.params.cid);
     if (!c) return bad(res, 'Không tìm thấy bình luận.');
-    const me = await User.findById(req.uid).select('email');
+    const me = await User.findById(req.uid).select('email siteAdmin');
     if (String(c.user) !== req.uid && String(v.owner) !== req.uid && !(me && isAdmin(me))) return fail(res, 'Bạn không có quyền xóa bình luận này.', null, 403);
     c.deleteOne(); v.commentNum = Math.max(0, (v.commentNum || 1) - 1); await v.save();
     res.json({ ok: true });
@@ -120,7 +120,7 @@ module.exports = (router, { auth, wrap, fail, S, N, isAdmin, alog }) => {
   router.delete('/videos/:id', auth, wrap(async (req, res) => {
     const v = oid(req.params.id) && await Video.findById(req.params.id).select('_id owner kind url');
     if (!v) return bad(res, 'Không tìm thấy video.');
-    const me = await User.findById(req.uid).select('email');
+    const me = await User.findById(req.uid).select('email siteAdmin');
     if (String(v.owner) !== req.uid && !(me && isAdmin(me))) return fail(res, 'Bạn không có quyền xóa video này.', null, 403);
     await Promise.all([Video.deleteOne({ _id: v._id }), Notification.deleteMany({ item: String(v._id) })]);
     if (v.kind === 'upload') { const pid = cloud.mediaPublicId(v.url, String(v.owner), 'video'); if (pid) await cloud.destroy(pid, 'video'); }   // dọn file trên Cloudinary (phải await: serverless)

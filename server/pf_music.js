@@ -15,7 +15,7 @@ module.exports = (router, { auth, wrap, fail, S, isAdmin, alog }) => {
   const oid = (id) => (isValidObjectId(id) ? id : null);
   const bad = (res, msg = 'Không tìm thấy.') => fail(res, msg, null, 404);
   const adminOnly = wrap(async (req, res, next) => {
-    const u = await User.findById(req.uid).select('email');
+    const u = await User.findById(req.uid).select('email siteAdmin');
     if (!u || !isAdmin(u)) return fail(res, 'Bạn không có quyền quản trị.', null, 403);
     next();
   });
@@ -158,7 +158,7 @@ module.exports = (router, { auth, wrap, fail, S, isAdmin, alog }) => {
   router.delete('/music/:id', auth, wrap(async (req, res) => {
     const s = oid(req.params.id) && await MusicSong.findById(req.params.id).select('_id owner album url');
     if (!s) return bad(res, 'Không tìm thấy bài hát.');
-    const me = await User.findById(req.uid).select('email');
+    const me = await User.findById(req.uid).select('email siteAdmin');
     if (String(s.owner) !== req.uid && !(me && isAdmin(me))) return fail(res, 'Bạn không có quyền xóa bài hát này.', null, 403);
     await Promise.all([
       MusicSong.deleteOne({ _id: s._id }),

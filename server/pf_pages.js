@@ -16,7 +16,7 @@ module.exports = (router, { auth, wrap, fail, S, N, isAdmin, alog }) => {
   const oid = (id) => (isValidObjectId(id) ? id : null);
   const bad = (res, msg = 'Không tìm thấy.') => fail(res, msg, null, 404);
   const adminOnly = wrap(async (req, res, next) => {
-    const u = await User.findById(req.uid).select('email');
+    const u = await User.findById(req.uid).select('email siteAdmin');
     if (!u || !isAdmin(u)) return fail(res, 'Bạn không có quyền quản trị.', null, 403);
     next();
   });
@@ -27,7 +27,7 @@ module.exports = (router, { auth, wrap, fail, S, N, isAdmin, alog }) => {
   const canAdmin = async (p, uid) => {
     if (String(p.owner) === String(uid)) return true;
     if ((p.admins || []).some((a) => String(a) === String(uid))) return true;
-    const u = await User.findById(uid).select('email');
+    const u = await User.findById(uid).select('email siteAdmin');
     return !!(u && isAdmin(u));
   };
 
@@ -124,7 +124,7 @@ module.exports = (router, { auth, wrap, fail, S, N, isAdmin, alog }) => {
   router.delete('/pages/:id', auth, wrap(async (req, res) => {
     const p = oid(req.params.id) && await Page.findById(req.params.id).select('_id owner name');
     if (!p) return bad(res, 'Không tìm thấy trang.');
-    const me = await User.findById(req.uid).select('email');
+    const me = await User.findById(req.uid).select('email siteAdmin');
     if (String(p.owner) !== req.uid && !(me && isAdmin(me))) return fail(res, 'Bạn không có quyền xóa trang này.', null, 403);
     await Promise.all([Page.deleteOne({ _id: p._id }), Notification.deleteMany({ item: String(p._id) })]);
     res.json({ ok: true });

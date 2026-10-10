@@ -8,7 +8,7 @@ const { destroyMedia } = require('./media');
 
 module.exports = (router, { auth, wrap, fail, S, isAdmin, alog }) => {
   const adminOnly = wrap(async (req, res, next) => {
-    const u = await User.findById(req.uid).select('email');
+    const u = await User.findById(req.uid).select('email siteAdmin');
     if (!u || !isAdmin(u)) return fail(res, 'Bạn không có quyền quản trị.', null, 403);
     next();
   });

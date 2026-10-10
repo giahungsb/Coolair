@@ -62,7 +62,7 @@ const getClicks = async () => {
 
 module.exports = (router, { auth, wrap, fail, S, isAdmin }) => {
   const adminOnly = wrap(async (req, res, next) => {
-    const u = await User.findById(req.uid).select('email');
+    const u = await User.findById(req.uid).select('email siteAdmin');
     if (!u || !isAdmin(u)) return fail(res, 'Bạn không có quyền quản trị.', null, 403);
     next();
   });
@@ -216,7 +216,9 @@ module.exports = (router, { auth, wrap, fail, S, isAdmin }) => {
   const PERM_KEYS = [['post', 'Đăng bài'], ['comment', 'Bình luận'], ['invite', 'Tạo mã mời'], ['group_create', 'Tạo nhóm'], ['event_create', 'Tạo sự kiện']];
   router.get('/admin/user-groups', auth, adminOnly, wrap(async (req, res) => {
     const rows = await UserGroup.find().sort({ displayorder: 1 }).lean();
-    res.json({ permKeys: PERM_KEYS, groups: rows.map((g) => ({ id: String(g._id), name: g.name, perms: Object.fromEntries(g.perms || new Map()), displayorder: g.displayorder })) });
+    // .lean() trả Map thành object thường -> Object.fromEntries() sẽ ném TypeError; chuẩn hóa cả hai dạng
+    const toObj = (m) => (m instanceof Map ? Object.fromEntries(m) : { ...(m || {}) });
+    res.json({ permKeys: PERM_KEYS.map(([key, label]) => ({ key, label })), groups: rows.map((g) => ({ id: String(g._id), name: g.name, perms: toObj(g.perms), displayorder: g.displayorder })) });
   }));
   router.post('/admin/user-groups', auth, adminOnly, wrap(async (req, res) => {
     const name = S(req.body.name).trim().slice(0, 60);

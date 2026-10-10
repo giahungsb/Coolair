@@ -338,6 +338,10 @@
       </div>
      </template>
      <div v-else class="text-xs text-mute">Không thể khóa hoặc xóa quản trị viên / chính bạn.</div>
+     <div v-if="acct.root&&!u.root&&!u.self" class="flex flex-wrap gap-2 items-center">
+      <button type="button" class="btn !h-8 !bg-transparent !text-zb2 border border-line" :disabled="adm.busy" @click="admAct(u,'admin')">{{ u.siteAdmin?'⛔ Gỡ quyền Admin':'🛡 Cấp quyền Admin' }}</button>
+      <span class="text-xs text-mute">Chỉ admin gốc mới thấy nút này.</span>
+     </div>
     </template>
    </div>
   </div>
@@ -448,7 +452,7 @@
     <option value="ipban_add">Chặn IP</option><option value="ipban_del">Gỡ chặn IP</option>
     <option value="pfield_add">Thêm field hồ sơ</option><option value="pfield_edit">Sửa field hồ sơ</option>
     <option value="pfield_del">Xóa field hồ sơ</option><option value="pfield_order">Sắp xếp field</option>
-    <option value="checkin_clear">Gỡ vị trí check-in</option><option value="tick_grant">Cấp tick xanh</option><option value="tick_revoke">Gỡ tick xanh</option><option value="site_config">Đổi cấu hình</option><option value="backup">Sao lưu</option>
+    <option value="checkin_clear">Gỡ vị trí check-in</option><option value="tick_grant">Cấp tick xanh</option><option value="tick_revoke">Gỡ tick xanh</option><option value="admin_grant">Cấp quyền Admin</option><option value="admin_revoke">Gỡ quyền Admin</option><option value="site_config">Đổi cấu hình</option><option value="backup">Sao lưu</option>
    </select>
    <input v-model="ax.lg.q" class="ip text-sm flex-1" style="min-width:140px" maxlength="60" placeholder="Tìm theo tên/đối tượng…" aria-label="Tìm kiếm nhật ký" @keyup.enter="lgLoad(1)">
    <button type="button" class="btn btn-g text-sm" @click="lgLoad(1)">Lọc</button>

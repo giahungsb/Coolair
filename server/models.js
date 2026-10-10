@@ -15,6 +15,7 @@ const User = model('User', new Schema({
   coverPos: { type: String, default: '50% 50%', maxlength: 20 },   // vị trí ảnh bìa (object-position CSS)
   noTheme: { type: Boolean, default: false },                                                                                    // true = không áp giao diện của người khác khi xem trang họ (như "nocss" của UCHome)
   verified: { type: Boolean, default: true },   // tài khoản cũ (trước khi có xác thực email) mặc định đã xác thực; đăng ký mới đặt false
+  siteAdmin: { type: Boolean, default: false },   // quản trị viên cấp trong trang quản trị (bổ sung cho ADMIN_EMAILS)
   blueTick: { type: Boolean, default: false },   // tick xanh xác thực (admin cấp, hiển thị ✓ cạnh tên)
   vCode: { type: String, select: false }, vExp: Date, vTries: { type: Number, default: 0 }, vSentAt: Date,
   rCode: { type: String, select: false }, rExp: Date, rTries: { type: Number, default: 0 }, rSentAt: Date,   // đặt lại mật khẩu
