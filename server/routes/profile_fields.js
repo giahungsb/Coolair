@@ -11,7 +11,7 @@ router.get('/profile-fields', auth, wrap(async (req, res) => {         // mọi 
   res.json({ fields: (await ProfileField.find().sort({ displayorder: 1, _id: 1 })).map(pfView) });
 }));
 const adminOnly = wrap(async (req, res, next) => {
-  const u = await User.findById(req.uid).select('email verified');
+  const u = await User.findById(req.uid).select('email siteAdmin verified');
   // verified: chặn chiếm quyền admin bằng cách đăng ký email admin rồi dùng ngay khi chưa xác thực
   if (!u || !isAdmin(u) || u.verified === false) return fail(res, 'Chỉ quản trị viên mới dùng được chức năng này.', null, 403);
   next();

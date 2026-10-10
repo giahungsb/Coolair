@@ -7,6 +7,7 @@
     "start": "node app.js",
     "dev": "node --watch app.js",
     "csp:sync": "node scripts/sync-vercel-csp.js",
+    "make-admin": "node scripts/make-admin.js",
     "test": "node --test test/*.test.js",
     "dev:web": "vite",
     "build": "vite build"

@@ -1,5 +1,6 @@
 /* Nhóm – port từ UCenter Home (mtag / thread / post / profield). Gắn vào router chính sau bước kiểm tra xác thực email. */
 const { isValidObjectId } = require('mongoose');
+const { need } = require('./perms');
 const rateLimit = require('express-rate-limit');
 const { rlStore } = require('./ratestore');
 const { User, Friendship, Category, Group, GroupMember, GroupInvite, Thread, GroupPost } = require('./models');
@@ -164,7 +165,7 @@ module.exports = (router, { S, wrap, fail, isAdmin, areFriends, N }) => {
     return { g, grade, pending: grade === -2 };
   };
 
-  router.post('/groups', writeLimiter, wrap(async (req, res) => {
+  router.post('/groups', writeLimiter, need('group_create'), wrap(async (req, res) => {
     // body: {category, name} cho chuyên mục "text"; hoặc {category, names:[...]} cho select/multi
     if (!oid(S(req.body.category))) return fl(res, 'Hãy chọn chuyên mục.');
     const cat = await Category.findById(req.body.category);

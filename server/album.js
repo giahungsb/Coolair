@@ -2,6 +2,7 @@
    rồi trình duyệt gọi POST /albums/:id/photos {url} để đăng ký. Server chỉ nhận URL đúng cloud + thư mục + id của chính người gọi.
    Ảnh có cảm xúc + bình luận (như bài viết), chuyển ảnh giữa các album, và phân trang (album: theo trang; ảnh: "xem thêm" theo con trỏ _id). */
 const { isValidObjectId } = require('mongoose');
+const { need } = require('./perms');
 const rateLimit = require('express-rate-limit');
 const { rlStore } = require('./ratestore');
 const { User, Album, Photo } = require('./models');
@@ -197,7 +198,7 @@ module.exports = (router, { auth, wrap, fail, S, areFriends, N }) => {
     res.json({ photo: pFull(p, req.uid) });
   }));
 
-  router.post('/photos/:id/comments', auth, talkLimit, wrap(async (req, res) => {
+  router.post('/photos/:id/comments', auth, talkLimit, need('comment'), wrap(async (req, res) => {
     const text = S(req.body.text).trim();
     if (!text || text.length > 500) return fail(res, 'Bình luận cần 1–500 ký tự.');
     const [u, r] = await Promise.all([User.findById(req.uid), loadPhoto(req.params.id, req.uid, true)]);

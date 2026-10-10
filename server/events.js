@@ -1,6 +1,7 @@
 /* Sự kiện (event) – port ý tưởng từ UCenter Home (space_event / cp_event): tiêu đề, thời gian, địa điểm, giới hạn người,
    tham gia (going) / có thể (maybe), bình luận. Nội dung là văn bản thuần (giao diện hiển thị bằng {{ }}). */
 const { isValidObjectId } = require('mongoose');
+const { need } = require('./perms');
 const rateLimit = require('express-rate-limit');
 const { rlStore } = require('./ratestore');
 const { User, Event, EventMember, EventCat } = require('./models');
@@ -81,7 +82,7 @@ module.exports = (router, { auth, wrap, fail, S, N }) => {
     res.json({ events: rows.map((e) => eView(e, me, e.owner)), total, page, per: PER });
   }));
 
-  router.post('/events', auth, talkLimit, wrap(async (req, res) => {
+  router.post('/events', auth, talkLimit, need('event_create'), wrap(async (req, res) => {
     const f = fields(req.body);
     if (f.err) return fail(res, f.err);
     const cc = await catOf(req.body.cat);
@@ -162,7 +163,7 @@ module.exports = (router, { auth, wrap, fail, S, N }) => {
     res.json({ total, page, per, users: rows.filter((m) => m.user).map((m) => ({ id: String(m.user._id), name: m.user.name, avatar: m.user.avatar || '' })) });
   }));
 
-  router.post('/events/:id/comments', auth, talkLimit, wrap(async (req, res) => {
+  router.post('/events/:id/comments', auth, talkLimit, need('comment'), wrap(async (req, res) => {
     const text = S(req.body.text).trim();
     if (!text || text.length > MAX_COMMENT) return fail(res, `Bình luận cần 1–${MAX_COMMENT} ký tự.`);
     const [u, e] = await Promise.all([User.findById(req.uid), load(req.params.id, req.uid, true)]);

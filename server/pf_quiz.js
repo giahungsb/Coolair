@@ -107,7 +107,7 @@ module.exports = (router, { auth, wrap, fail, S, N, isAdmin }) => {
   router.delete('/quizzes/:id', auth, wrap(async (req, res) => {
     const q = oid(req.params.id) && await Quiz.findById(req.params.id).select('_id owner title');
     if (!q) return bad(res, 'Không tìm thấy quiz.');
-    const me = await User.findById(req.uid).select('email');
+    const me = await User.findById(req.uid).select('email siteAdmin');
     if (String(q.owner) !== req.uid && !(me && isAdmin(me))) return fail(res, 'Bạn không có quyền xóa quiz này.', null, 403);
     await Promise.all([QuizAttempt.deleteMany({ quiz: q._id }), Notification.deleteMany({ item: String(q._id) }), q.deleteOne()]);
     res.json({ ok: true });

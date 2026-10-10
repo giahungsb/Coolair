@@ -213,11 +213,15 @@ module.exports = (router, { auth, wrap, fail, S, isAdmin }) => {
   }));
 
   /* ---- Nhóm quyền ---- */
-  const PERM_KEYS = [['post', 'Đăng bài'], ['comment', 'Bình luận'], ['invite', 'Tạo mã mời'], ['group_create', 'Tạo nhóm'], ['event_create', 'Tạo sự kiện']];
+  // Quyền 'admin': thành viên trong nhóm có quyền này được bật cờ siteAdmin (vào trang quản trị). Chỉ admin gốc (ADMIN_EMAILS) được bật / tắt / gán nhóm có quyền này.
+  const PERM_KEYS = [['post', 'Đăng bài'], ['comment', 'Bình luận'], ['invite', 'Tạo mã mời'], ['group_create', 'Tạo nhóm'], ['event_create', 'Tạo sự kiện'], ['admin', 'Quản trị viên (vào trang quản trị)']];
+  const ROOTS = (process.env.ADMIN_EMAILS || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+  const isRootEmail = (e) => ROOTS.includes(String(e || '').toLowerCase());
+  const meIsRoot = async (req) => { const m = await User.findById(req.uid).select('email'); return !!m && isRootEmail(m.email); };
+  const pget = (m, k) => (m instanceof Map ? m.get(k) : (m || {})[k]) === true;   // đọc quyền từ Map (document) hoặc object thường (lean)
+  const toObj = (m) => (m instanceof Map ? Object.fromEntries(m) : { ...(m || {}) });   // .lean() trả Map thành object thường -> Object.fromEntries() sẽ ném TypeError
   router.get('/admin/user-groups', auth, adminOnly, wrap(async (req, res) => {
     const rows = await UserGroup.find().sort({ displayorder: 1 }).lean();
-    // .lean() trả Map thành object thường -> Object.fromEntries() sẽ ném TypeError; chuẩn hóa cả hai dạng
-    const toObj = (m) => (m instanceof Map ? Object.fromEntries(m) : { ...(m || {}) });
     res.json({ permKeys: PERM_KEYS.map(([key, label]) => ({ key, label })), groups: rows.map((g) => ({ id: String(g._id), name: g.name, perms: toObj(g.perms), displayorder: g.displayorder })) });
   }));
   router.post('/admin/user-groups', auth, adminOnly, wrap(async (req, res) => {
@@ -225,23 +229,40 @@ module.exports = (router, { auth, wrap, fail, S, isAdmin }) => {
     if (!name) return fail(res, 'Cần tên nhóm.');
     const perms = {};
     for (const [k] of PERM_KEYS) perms[k] = !!(req.body.perms && req.body.perms[k]);
+    if (perms.admin && !(await meIsRoot(req))) return fail(res, 'Chỉ quản trị viên gốc mới tạo nhóm có quyền Quản trị viên.', null, 403);
     const g = await UserGroup.create({ name, perms, displayorder: parseInt(req.body.displayorder, 10) || 0 });
     alog(req.uid, 'usergroup_add', name);
     res.status(201).json({ group: { id: String(g._id) } });
   }));
   router.patch('/admin/user-groups/:id', auth, adminOnly, wrap(async (req, res) => {
     const b = req.body || {}, upd = {};
+    const old = await UserGroup.findById(req.params.id).lean();
+    if (!old) return fail(res, 'Không tìm thấy.', null, 404);
     if (b.name !== undefined) upd.name = S(b.name).trim().slice(0, 60);
-    if (b.perms) { const perms = {}; for (const [k] of PERM_KEYS) perms[k] = !!b.perms[k]; upd.perms = perms; }
+    let adminChanged = false, adminNow = pget(old.perms, 'admin');
+    if (b.perms) {
+      const perms = {}; for (const [k] of PERM_KEYS) perms[k] = !!b.perms[k];
+      adminChanged = perms.admin !== adminNow; adminNow = perms.admin;
+      if (adminChanged && !(await meIsRoot(req))) return fail(res, 'Chỉ quản trị viên gốc mới đổi quyền Quản trị viên của nhóm.', null, 403);
+      upd.perms = perms;
+    }
     if (b.displayorder !== undefined) upd.displayorder = parseInt(b.displayorder, 10) || 0;
     const g = await UserGroup.findByIdAndUpdate(req.params.id, upd, { new: true });
     if (!g) return fail(res, 'Không tìm thấy.', null, 404);
+    if (adminChanged) {   // đồng bộ cờ siteAdmin cho mọi thành viên của nhóm (bỏ qua admin gốc, và khi cấp thì bỏ qua tài khoản chưa xác thực / bị khóa)
+      const q = { userGroup: g._id }; if (adminNow) Object.assign(q, { verified: { $ne: false }, banned: { $ne: true } });
+      await User.updateMany(q, { siteAdmin: adminNow });
+    }
     alog(req.uid, 'usergroup_edit', g.name);
     res.json({ ok: true });
   }));
   router.delete('/admin/user-groups/:id', auth, adminOnly, wrap(async (req, res) => {
+    const old = await UserGroup.findById(req.params.id).lean();
+    if (!old) return fail(res, 'Không tìm thấy.', null, 404);
+    if (pget(old.perms, 'admin') && !(await meIsRoot(req))) return fail(res, 'Chỉ quản trị viên gốc mới xóa nhóm có quyền Quản trị viên.', null, 403);
     const g = await UserGroup.findByIdAndDelete(req.params.id);
     if (!g) return fail(res, 'Không tìm thấy.', null, 404);
+    if (pget(old.perms, 'admin')) await User.updateMany({ userGroup: g._id }, { siteAdmin: false });   // nhóm admin bị xóa -> thành viên mất quyền admin do nhóm cấp
     await User.updateMany({ userGroup: g._id }, { $unset: { userGroup: 1 } });
     alog(req.uid, 'usergroup_del', g.name);
     res.json({ ok: true });
@@ -252,8 +273,14 @@ module.exports = (router, { auth, wrap, fail, S, isAdmin }) => {
     if (!u) return fail(res, 'Không tìm thấy.', null, 404);
     const gid = S(req.body.group).trim();
     if (gid && !/^[0-9a-fA-F]{24}$/.test(gid)) return fail(res, 'Nhóm không hợp lệ.');
-    if (gid && !(await UserGroup.exists({ _id: gid }))) return fail(res, 'Nhóm không tồn tại.', null, 404);
+    const ng = gid ? await UserGroup.findById(gid).lean() : null;
+    if (gid && !ng) return fail(res, 'Nhóm không tồn tại.', null, 404);
+    const og = u.userGroup ? await UserGroup.findById(u.userGroup).lean() : null;
+    const newAdm = !!ng && pget(ng.perms, 'admin'), oldAdm = !!og && pget(og.perms, 'admin');
+    if ((newAdm || oldAdm) && !(await meIsRoot(req))) return fail(res, 'Chỉ quản trị viên gốc mới gán / gỡ nhóm có quyền Quản trị viên.', null, 403);
+    if (newAdm && (u.verified === false || u.banned)) return fail(res, 'Tài khoản chưa xác thực email hoặc đang bị khóa, không thể cấp quyền Quản trị viên.');
     u.userGroup = gid || undefined;
+    if (newAdm) u.siteAdmin = true; else if (oldAdm) u.siteAdmin = false;
     await u.save();
     alog(req.uid, 'user_set_group', u.username, gid || '(gỡ)');
     res.json({ ok: true });

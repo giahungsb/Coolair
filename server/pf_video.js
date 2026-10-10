@@ -1,6 +1,7 @@
 /* Video – port module `video` của phpFox 3.0 (đầy đủ: tải lên, nhúng link, chuyên mục, video nổi bật,
    lượt xem, thích, bình luận). File video tải lên Cloudinary qua /upload/sign có sẵn (không cần biến .env mới). */
 const { isValidObjectId } = require('mongoose');
+const { need } = require('./perms');
 const rateLimit = require('express-rate-limit');
 const { rlStore } = require('./ratestore');
 const { User, VideoCat, Video, Notification } = require('./models');
@@ -83,7 +84,7 @@ module.exports = (router, { auth, wrap, fail, S, N, isAdmin, alog }) => {
     res.json({ video: { ...vView(o), mine: String(v.owner._id) === req.uid, comments } });
   }));
 
-  router.post('/videos/:id/comments', auth, talkLimit, wrap(async (req, res) => {
+  router.post('/videos/:id/comments', auth, talkLimit, need('comment'), wrap(async (req, res) => {
     const v = oid(req.params.id) && await Video.findById(req.params.id).select('_id owner comments');
     if (!v) return bad(res, 'Không tìm thấy video.');
     const text = S(req.body.text).trim();

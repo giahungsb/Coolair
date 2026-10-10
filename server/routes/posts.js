@@ -1,5 +1,6 @@
 /* Bài viết, bình luận, cảm xúc */
 const { isValidObjectId, rateLimit, rlStore, User, Post, N, mention, social, media, EMOJI, S, wrap, fail, auth, award, completeTask, censorFilter, friendIds, areFriends } = require('./shared');
+const { need } = require('../perms');
 
 /* Parse location check-in từ client: { name, lat, lng }. Validate chặt để chống dữ liệu bẩn.
    Trả về object location hoặc undefined (không có check-in). */
@@ -110,7 +111,7 @@ router.get('/posts/:id', auth, wrap(async (req, res) => {
   res.json(view(p, req.uid));
 }));
 
-router.post('/posts', auth, postLimit, wrap(async (req, res) => {
+router.post('/posts', auth, postLimit, need('post'), wrap(async (req, res) => {
   const text = await censorFilter(S(req.body.text).trim());
   if (text.length > 2000) return fail(res, 'Bài viết tối đa 2000 ký tự.');
   const m = await media.build(req.body, req.uid);   // ảnh / video đính kèm (có thể trống)
@@ -180,7 +181,7 @@ router.post('/posts/:id/react', auth, wrap(async (req, res) => {
   res.json(view(p, req.uid));
 }));
 
-router.post('/posts/:id/comments', auth, wrap(async (req, res) => {
+router.post('/posts/:id/comments', auth, need('comment'), wrap(async (req, res) => {
   const text = await censorFilter(S(req.body.text).trim());
   if (!text || text.length > 500) return fail(res, 'Bình luận cần 1–500 ký tự.');
   const [u, p] = await Promise.all([User.findById(req.uid), findPost(req.params.id)]);

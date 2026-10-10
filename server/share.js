@@ -2,6 +2,7 @@
    chia sẻ bài viết / nhật ký / ảnh / sự kiện / bình chọn / trạng thái / link ngoài
    lên tường của mình kèm lời bình, tôn trọng quyền riêng tư của nội dung gốc. */
 const { isValidObjectId } = require('mongoose');
+const { need } = require('./perms');
 const rateLimit = require('express-rate-limit');
 const { rlStore } = require('./ratestore');
 const { User, Post, Blog, Photo, Album, Event, Poll, Doing, Share } = require('./models');
@@ -115,7 +116,7 @@ module.exports = (router, { auth, wrap, fail, S, N }) => {
     res.json({ ok: true });
   }));
 
-  router.post('/shares/:id/comments', auth, talkLimit, wrap(async (req, res) => {
+  router.post('/shares/:id/comments', auth, talkLimit, need('comment'), wrap(async (req, res) => {
     const s = isValidObjectId(req.params.id) ? await Share.findById(req.params.id) : null;
     if (!s) return bad(res);
     const me = req.uid, ids = await friendIds(me);

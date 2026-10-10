@@ -5,6 +5,7 @@
    - mã mời (cp_invite)
    Không chép mã PHP; viết lại bằng Node/Mongo. Không dùng IP để gợi ý "người gần bạn" (UCHome có, nhưng trên Vercel IP không đáng tin và là dữ liệu cá nhân). */
 const { isValidObjectId, Types } = require('mongoose');
+const { need } = require('./perms');
 const rateLimit = require('express-rate-limit');
 const { rlStore } = require('./ratestore');
 const crypto = require('crypto');
@@ -195,7 +196,7 @@ const mount = (router, { auth, wrap, fail, S, areFriends }) => {
     res.json({ max: MAX_UNUSED_INVITES, invites: list.map((i) => inviteView(i, i.usedBy)) });
   }));
 
-  router.post('/invites', rate(10, 'Bạn tạo mã quá nhanh, vui lòng thử lại sau.'), wrap(async (req, res) => {
+  router.post('/invites', rate(10, 'Bạn tạo mã quá nhanh, vui lòng thử lại sau.'), need('invite'), wrap(async (req, res) => {
     if ((await Invite.countDocuments({ owner: req.uid, usedBy: null })) >= MAX_UNUSED_INVITES) return fail(res, `Bạn đang có ${MAX_UNUSED_INVITES} mã chưa dùng. Hãy dùng hoặc xóa bớt rồi tạo thêm.`);
     const inv = await Invite.create({ owner: req.uid, code: crypto.randomBytes(6).toString('hex') });
     res.status(201).json({ invite: inviteView(inv, null) });
@@ -208,7 +209,7 @@ const mount = (router, { auth, wrap, fail, S, areFriends }) => {
   }));
 
   /* ----- Mời bạn qua email (port từ UCenter Home cp_invite) ----- */
-  router.post('/invites/email', rate(10, 'Bạn gửi lời mời quá nhanh, vui lòng thử lại sau.'), wrap(async (req, res) => {
+  router.post('/invites/email', rate(10, 'Bạn gửi lời mời quá nhanh, vui lòng thử lại sau.'), need('invite'), wrap(async (req, res) => {
     const email = S(req.body.email).trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return fail(res, 'Email không hợp lệ.');
     if ((await Invite.countDocuments({ owner: req.uid, usedBy: null })) >= MAX_UNUSED_INVITES)

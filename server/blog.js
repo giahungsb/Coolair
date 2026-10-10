@@ -1,6 +1,7 @@
 /* Nhật ký (blog) – port từ UCenter Home (space_blog / cp_blog): bài viết dài có tiêu đề, quyền riêng tư, lượt xem, bình luận.
    Khác "bài viết" ngắn trên bảng tin (Post). Nội dung là văn bản thuần: giao diện hiển thị bằng {{ }} nên không chạy được HTML/JS. */
 const { isValidObjectId } = require('mongoose');
+const { need } = require('./perms');
 const rateLimit = require('express-rate-limit');
 const { rlStore } = require('./ratestore');
 const { User, Blog, BlogCat } = require('./models');
@@ -182,7 +183,7 @@ module.exports = (router, { auth, wrap, fail, S, areFriends, N }) => {
     res.json({ ok: true });
   }));
 
-  router.post('/blogs/:id/comments', auth, talkLimit, wrap(async (req, res) => {
+  router.post('/blogs/:id/comments', auth, talkLimit, need('comment'), wrap(async (req, res) => {
     const text = await censorFilter(S(req.body.text).trim());
     if (!text || text.length > MAX_COMMENT) return fail(res, `Bình luận cần 1–${MAX_COMMENT} ký tự.`);
     const [u, b] = await Promise.all([User.findById(req.uid), load(req.params.id, req.uid, true)]);
