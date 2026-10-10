@@ -264,7 +264,7 @@
 
 <!-- ===== TRANG CÁ NHÂN (space_index.htm: #ubar | #content | #obar) ===== -->
 <!-- ===== QUẢN TRỊ: quản lý thành viên (admincp user/browse + ban) ===== -->
-<section v-else-if="view==='admin'&&acct.admin" class="space-y-3">
+<section v-else-if="view==='admin'&&acct.admin" class="space-y-3 adm-sec">
  <h2 class="title"><img src="/img/uch/app/setting.gif" alt="">Quản trị</h2>
  <select class="adm_tabs_m" aria-label="Chọn mục quản trị" :value="adm.tab" @change="admTab($event.target.value)">
   <option value="stats">📊 Thống kê</option><option value="users">👥 Thành viên</option><option value="reports">🚩 Tố cáo</option><option value="mod">🛡️ Kiểm duyệt</option><option value="censor">🚫 Từ cấm</option><option value="credit">⭐ Điểm & NV</option><option value="hot">🔥 Nổi bật</option><option value="ip">⛔ Chặn IP</option><option value="logs">📝 Nhật ký</option><option value="cfg">⚙️ Cấu hình</option><option value="grp">👪 Nhóm quyền</option><option value="topics">📑 Chủ đề</option><option value="magic">🎁 Đạo cụ</option><option value="pfx">🗂️ Danh mục</option><option value="cmap">🗺️ Bản đồ</option>
@@ -334,7 +334,7 @@
        <button v-if="!u.verified" type="button" class="btn !h-8 !bg-transparent !text-zb2 border border-line" :disabled="adm.busy" @click="admAct(u,'verify')">✉ Xác thực email</button>
        <button type="button" class="btn !h-8 !bg-transparent !text-zb2 border border-line" :disabled="adm.busy" @click="admAct(u,'tick')">{{ u.blueTick?'✓ Gỡ tick xanh':'✓ Cấp tick xanh' }}</button>
        <button type="button" class="btn !h-8 !bg-transparent !text-zb2 border border-line" @click="openUser(u.id)">Xem trang cá nhân</button>
-       <button type="button" class="btn !h-8 !bg-transparent !text-[#d64545] border border-line" :disabled="adm.busy" @click="admDel(u)">🗑 Xóa vĩnh viễn</button>
+       <button type="button" class="btn adm-del !h-8 !bg-transparent !text-[#d64545] border border-line" :disabled="adm.busy" @click="admDel(u)">🗑 Xóa vĩnh viễn</button>
       </div>
      </template>
      <div v-else class="text-xs text-mute">Không thể khóa hoặc xóa quản trị viên / chính bạn.</div>
@@ -1524,6 +1524,17 @@
  </div>
 </teleport>
 </template>
+<div class="toast-wrap" role="status" aria-live="polite"><div v-for="t in toasts" :key="t.id" class="toast" @click="toastClose(t.id)">{{ t.msg }}</div></div>
+<div v-if="dlg.open" class="dlg-bg" role="dialog" aria-modal="true" @click.self="dlgDone(dlg.input?null:false)">
+ <div class="dlg">
+  <div class="dlg-msg">{{ dlg.msg }}</div>
+  <input v-if="dlg.input" v-model="dlg.val" class="ip" aria-label="Nhập nội dung" @keyup.enter="dlgDone(dlg.val)">
+  <div class="dlg-btns">
+   <button type="button" class="btn !bg-transparent !text-zb2 border border-line" @click="dlgDone(dlg.input?null:false)">Hủy</button>
+   <button type="button" class="btn" :class="{'dlg-danger':dlg.danger}" @click="dlgDone(dlg.input?dlg.val:true)">{{ dlg.ok }}</button>
+  </div>
+ </div>
+</div>
 </div>
 
 <!-- Mã nguồn JS: src/ (entry src/main.js, Vite bundle). Vue lấy từ npm, không còn CDN. -->
