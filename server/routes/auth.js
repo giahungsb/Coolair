@@ -112,7 +112,7 @@ router.post('/auth/reset', limiter, wrap(async (req, res) => {
   if (u.rTries >= 5) return fail(res, 'Bạn đã nhập sai quá nhiều lần. Hãy yêu cầu mã mới.', null, 429);
   if (!/^\d{10}$/.test(code) || !same(u.rCode, hashCode(u, 'r' + code))) { u.rTries += 1; await u.save(); return bad(); }
   // Nhận được mã qua email nghĩa là chủ email -> đồng thời coi như đã xác thực email
-  Object.assign(u, { password: await bcrypt.hash(pw, 12), verified: true, rCode: undefined, rExp: undefined, rTries: 0 });
+  Object.assign(u, { password: await bcrypt.hash(pw, 12), verified: true, noPassword: false, rCode: undefined, rExp: undefined, rTries: 0 });
   await u.save();
   await revokeAllSessions(u._id);   // quên mật khẩu = có thể tài khoản đã bị chiếm -> đá mọi phiên cũ ra
   try { await social.applyInvite(u, N); } catch (e) { console.error('Invite:', e.message); }

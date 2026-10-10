@@ -9,6 +9,7 @@ router.param('id', (req, res, next, id) => (isValidObjectId(id) ? next() : fail(
 // Dùng require TĨNH (không require('./' + tên)) để Vercel/nft theo dấu được và đóng gói đủ file.
 require('./auth')(router);
 require('./totp')(router);
+require('./discord')(router);   // đăng nhập bằng Discord (OAuth2)
 require('./account')(router);
 require('./profile_fields')(router);
 require('./gate')(router);

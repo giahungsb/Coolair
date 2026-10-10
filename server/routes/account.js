@@ -23,7 +23,7 @@ router.post('/settings/password', auth, wrap(async (req, res) => {
   const e = pwErr(nw);
   if (e) return fail(res, e, { new: e });
   if (cur === nw) return fail(res, 'Mật khẩu mới phải khác mật khẩu hiện tại.', { new: 'Mật khẩu mới phải khác mật khẩu hiện tại.' });
-  u.password = await bcrypt.hash(nw, 12);
+  u.password = await bcrypt.hash(nw, 12); u.noPassword = false;
   await u.save();
   await revokeAllSessions(req.uid);   // đổi mật khẩu -> đá MỌI phiên (kể cả thiết bị khác đang bị chiếm) ra, đăng nhập lại
   res.json({ ok: true });

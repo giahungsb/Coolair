@@ -19,6 +19,8 @@ const User = model('User', new Schema({
   blueTick: { type: Boolean, default: false },   // tick xanh xác thực (admin cấp, hiển thị ✓ cạnh tên)
   vCode: { type: String, select: false }, vExp: Date, vTries: { type: Number, default: 0 }, vSentAt: Date,
   rCode: { type: String, select: false }, rExp: Date, rTries: { type: Number, default: 0 }, rSentAt: Date,   // đặt lại mật khẩu
+  discordId: { type: String, unique: true, sparse: true, default: undefined },   // ID người dùng Discord (đăng nhập OAuth2)
+  noPassword: { type: Boolean, default: false },   // true = tài khoản tạo bằng Discord, mật khẩu là chuỗi ngẫu nhiên người dùng chưa biết (xóa cờ khi đặt/đổi mật khẩu)
   totpSecret: { type: String, select: false }, totpEnabled: { type: Boolean, default: false }, totpEnabledAt: Date,   // 2FA TOTP (secret mã hóa AES-256-GCM)
   totpBackup: { type: [String], select: false, default: [] },   // mã dự phòng đã hash HMAC, mỗi mã dùng 1 lần
   banned: { type: Boolean, default: false, index: true }, banReason: { type: String, maxlength: 100, default: '' }, bannedAt: Date,   // quản trị khóa tài khoản (admincp user/ban)

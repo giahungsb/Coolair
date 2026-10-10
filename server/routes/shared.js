@@ -35,7 +35,7 @@ const fxOf = (u) => {   // hiệu ứng đạo cụ đang có hiệu lực (đ�
   return out;
 };
 const pub = (u) => ({ id: u.id, name: u.name, email: u.email, username: u.username, verified: u.verified !== false, blueTick: !!u.blueTick,
-  totpEnabled: !!u.totpEnabled,
+  totpEnabled: !!u.totpEnabled, discord: !!u.discordId, noPassword: !!u.noPassword,
   phone: u.phone || '', birthday: u.birthday ? u.birthday.toISOString().slice(0, 10) : '', age: ageOf(u.birthday),
   location: u.location || '', bio: u.bio || '', avatar: u.avatar || '', cover: u.cover || '', coverPos: u.coverPos || '50% 50%', joined: u.createdAt, mood: u.mood || '',
   theme: { id: u.theme || '', bg: u.themeBg || '', accent: u.themeAccent || '' }, noTheme: !!u.noTheme, admin: isAdmin(u), root: isRoot(u), extra: extraOf(u), fx: fxOf(u) });

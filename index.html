@@ -119,6 +119,7 @@
    <p class="ae" :class="{hint:!err}" role="alert">{{ err||'Chào mừng bạn trở lại 👋' }}</p>
    <button class="ab" :disabled="busy">{{ busy?'Đang xử lý…':'Đăng nhập' }}</button>
    <p class="text-center text-sm mt-2"><a href="#" class="text-zb2" @click.prevent="openFp">Quên mật khẩu?</a></p>
+   <a v-if="dcOn" href="/api/auth/discord" class="ab" style="background:#5865F2;display:grid;place-items:center;text-decoration:none;margin-top:.5rem">Tiếp tục với Discord</a>
   </form>
   <form class="fu" novalidate @submit.prevent="register">
    <div class="br"><c-ic n="cloud"></c-ic>CoolAir</div>
@@ -1422,6 +1423,12 @@
    <p v-if="pw.ok" class="text-sm text-zg">{{ pw.ok }}</p>
    <button class="btn btn-g text-sm" :disabled="pw.busy" @click="chPw">{{ pw.busy?'Đang đổi…':'Đổi mật khẩu' }}</button>
    <p class="text-xs text-mute">Đổi mật khẩu sẽ đăng xuất phiên hiện tại, bạn cần đăng nhập lại.</p></div>
+  <div class="card p-3 space-y-2" v-if="dcOn||acct.discord"><b class="text-sm">Discord</b>
+   <p v-if="dcErr" class="text-xs" style="color:#d64545" role="alert">{{ dcErr }}</p>
+   <template v-if="acct.discord"><p class="text-xs text-mute">Tài khoản đã liên kết với Discord, bạn có thể đăng nhập bằng Discord.</p>
+    <button class="btn text-sm" :disabled="dcBusy" @click="dcUnlink">{{ dcBusy?'Đang xử lý…':'Hủy liên kết Discord' }}</button></template>
+   <template v-else><p class="text-xs text-mute">Liên kết để lần sau đăng nhập nhanh bằng Discord.</p>
+    <a href="/api/auth/discord?link=1" class="btn btn-g text-sm" style="display:inline-block;text-decoration:none">Liên kết Discord</a></template></div>
   <div class="card p-3 space-y-2"><b class="text-sm">📱 Thiết bị đăng nhập</b>
    <p class="text-xs text-mute">Các thiết bị đang đăng nhập tài khoản này. Nếu thấy thiết bị lạ, hãy thu hồi ngay.</p>
    <p v-if="dev.err" class="text-xs" style="color:#d64545" role="alert">{{ dev.err }}</p>

@@ -9,7 +9,7 @@ const directives = {
   scriptSrc: ["'self'"],   // twemoji và ably đều bundle qua npm (Vite) -> không cần CDN nào trong script-src (connect-src vẫn cần domain Ably cho WebSocket)
   styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
   fontSrc: ["'self'", 'https://fonts.gstatic.com'],
-  imgSrc: ["'self'", 'data:', 'blob:', 'https://cdn.jsdelivr.net', 'https://res.cloudinary.com', 'https://i.ytimg.com', 'https://img.youtube.com', 'https://i.vimeocdn.com', 'https://*.tile.openstreetmap.org'],   // tile bản đồ check-in nhóm
+  imgSrc: ["'self'", 'data:', 'blob:', 'https://cdn.jsdelivr.net', 'https://res.cloudinary.com', 'https://cdn.discordapp.com', 'https://i.ytimg.com', 'https://img.youtube.com', 'https://i.vimeocdn.com', 'https://*.tile.openstreetmap.org'],   // tile bản đồ check-in nhóm
   mediaSrc: ["'self'", 'blob:', 'data:', 'https://res.cloudinary.com'],
   // Ably v2: main.realtime.ably.net + máy chủ dự phòng ably-realtime.com
   connectSrc: ["'self'", 'https://nominatim.openstreetmap.org', 'https://*.ingest.sentry.io', 'https://*.ingest.us.sentry.io', 'https://api.cloudinary.com', 'https://*.ably.io', 'wss://*.ably.io', 'https://*.ably.net', 'wss://*.ably.net', 'https://*.ably-realtime.com', 'wss://*.ably-realtime.com'],
