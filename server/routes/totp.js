@@ -53,11 +53,11 @@ router.post('/auth/totp/enable', auth, totpLimiter, wrap(async (req, res) => {
   await User.updateOne({ _id: u._id }, { totpEnabled: true, totpEnabledAt: new Date(), totpBackup: codes.map((c) => hashCode(u, 'b' + c)) });
   res.json({ ok: true, backupCodes: codes });
 }));
-// Tắt 2FA: cần mật khẩu + mã 2FA (hoặc 1 mã dự phòng) để kẻ chiếm phiên không tắt lén được
+// Tắt 2FA: cần mật khẩu (trừ tài khoản Discord chưa có mật khẩu: chỉ cần mã 2FA, người chiếm phiên không có app nên vẫn không tắt lén được) + mã 2FA (hoặc 1 mã dự phòng) để kẻ chiếm phiên không tắt lén được
 router.post('/auth/totp/disable', auth, totpLimiter, wrap(async (req, res) => {
   const u = await User.findById(req.uid).select('+password +totpSecret +totpBackup');
   if (!u || !u.totpEnabled) return fail(res, 'Tài khoản chưa bật xác thực 2 bước.');
-  if (!await bcrypt.compare(String(req.body.password || ''), u.password)) return fail(res, 'Mật khẩu chưa đúng.', { password: 'Mật khẩu chưa đúng.' });
+  if (!u.noPassword && !await bcrypt.compare(String(req.body.password || ''), u.password)) return fail(res, 'Mật khẩu chưa đúng.', { password: 'Mật khẩu chưa đúng.' });
   const code = String(req.body.code || '');
   let ok2 = false;
   try { ok2 = totp.verify(totp.dec(u.totpSecret), code); } catch { ok2 = false; }

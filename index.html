@@ -71,8 +71,8 @@
 <div v-if="tfa2.showOff" class="fixed inset-0 z-[150] grid place-items-center bg-black/50 p-4 overflow-y-auto" role="dialog" aria-labelledby="tfa2o-t" @click.self="tfa2.showOff=false">
  <form class="card w-full max-w-sm p-6 text-center space-y-3" novalidate @submit.prevent="tfaDisable">
   <h2 id="tfa2o-t" class="text-xl font-bold">Tắt xác thực 2 bước</h2>
-  <p class="text-sm text-mute">Nhập mật khẩu và mã 2FA hiện tại để xác nhận.</p>
-  <input v-model="tfa2.pw" type="password" class="ip" autocomplete="current-password" placeholder="Mật khẩu hiện tại" aria-label="Mật khẩu hiện tại" @input="tfa2.err=''">
+  <p class="text-sm text-mute">{{ acct.noPassword?'Nhập mã 2FA hiện tại để xác nhận.':'Nhập mật khẩu và mã 2FA hiện tại để xác nhận.' }}</p>
+  <input v-if="!acct.noPassword" v-model="tfa2.pw" type="password" class="ip" autocomplete="current-password" placeholder="Mật khẩu hiện tại" aria-label="Mật khẩu hiện tại" @input="tfa2.err=''">
   <input v-model="tfa2.code" class="ip text-center text-2xl tracking-[.25em] font-bold" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="Mã 6 số / mã dự phòng" aria-label="Mã 2FA" @input="tfa2.err=''">
   <p class="text-sm min-h-[1.25rem]" style="color:#d64545" role="alert">{{ tfa2.err }}</p>
   <button class="btn w-full" style="background:#d64545;color:#fff" :disabled="tfa2.busy">{{ tfa2.busy?'Đang xử lý…':'Tắt 2FA' }}</button>
@@ -1426,7 +1426,8 @@
    <p v-if="pw.err" class="text-sm" style="color:#d64545" role="alert">{{ pw.err }}</p>
    <p v-if="pw.ok" class="text-sm text-zg">{{ pw.ok }}</p>
    <button class="btn btn-g text-sm" :disabled="pw.busy" @click="chPw">{{ pw.busy?'Đang đổi…':'Đổi mật khẩu' }}</button>
-   <p class="text-xs text-mute">Đổi mật khẩu sẽ đăng xuất phiên hiện tại, bạn cần đăng nhập lại.</p></div>
+   <p class="text-xs text-mute">Đổi mật khẩu sẽ đăng xuất phiên hiện tại, bạn cần đăng nhập lại.</p>
+   <p class="text-xs"><a href="#" class="text-zb2" @click.prevent="dcSetPw">Chưa có hoặc quên mật khẩu? Gửi mã đặt mật khẩu qua email</a></p></div>
   <div class="card p-3 space-y-2" v-if="dcOn||acct.discord"><b class="text-sm">Discord</b>
    <p v-if="dcErr" class="text-xs" style="color:#d64545" role="alert">{{ dcErr }}</p>
    <template v-if="acct.discord"><p class="text-xs text-mute">Tài khoản đã liên kết với Discord, bạn có thể đăng nhập bằng Discord.</p>

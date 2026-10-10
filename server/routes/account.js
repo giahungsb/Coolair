@@ -19,11 +19,12 @@ router.post('/settings/password', auth, wrap(async (req, res) => {
   const cur = S(req.body.current), nw = S(req.body.new);
   const u = await User.findById(req.uid).select('+password');
   if (!u) return res.status(401).json({ error: 'Tài khoản không tồn tại.' });
+  if (u.noPassword) return fail(res, 'Tài khoản này tạo bằng Discord nên chưa có mật khẩu hiện tại. Hãy dùng "Đặt mật khẩu" (mã gửi qua email) trong Cài đặt.');
   if (!await bcrypt.compare(cur, u.password)) return fail(res, 'Mật khẩu hiện tại chưa đúng.', { current: 'Mật khẩu hiện tại chưa đúng.' });
   const e = pwErr(nw);
   if (e) return fail(res, e, { new: e });
   if (cur === nw) return fail(res, 'Mật khẩu mới phải khác mật khẩu hiện tại.', { new: 'Mật khẩu mới phải khác mật khẩu hiện tại.' });
-  u.password = await bcrypt.hash(nw, 12); u.noPassword = false;
+  u.password = await bcrypt.hash(nw, 12);
   await u.save();
   await revokeAllSessions(req.uid);   // đổi mật khẩu -> đá MỌI phiên (kể cả thiết bị khác đang bị chiếm) ra, đăng nhập lại
   res.json({ ok: true });

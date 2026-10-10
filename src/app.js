@@ -135,7 +135,7 @@ const app=createApp({render:appRender,setup(){
  const tfaSetup=async()=>{tfa2.busy=true;tfa2.err='';tfa2.ok='';try{const d=await api('POST','/auth/totp/setup');Object.assign(tfa2,{qr:d.qr,secret:d.secret,code:'',backup:[],bkSaved:false,showSetup:true})}catch(e){tfa2.err=e.message}finally{tfa2.busy=false}};
  const tfaEnable=async()=>{const c=tfa2.code.replace(/[\s-]/g,'');if(!/^\d{6}$/.test(c)){tfa2.err='Nhập mã 6 số đang hiện trong app Authenticator.';return}tfa2.busy=true;tfa2.err='';try{const d=await api('POST','/auth/totp/enable',{code:c});tfa2.backup=d.backupCodes||[];tfa2.bkSaved=false;acct.totpEnabled=true;tfa2.err=''}catch(e){tfa2.err=e.message}finally{tfa2.busy=false}};
  const tfaCloseSetup=()=>{if(tfa2.backup.length&&!tfa2.bkSaved)return;tfa2.showSetup=false;tfa2.backup=[];tfa2.code=''};
- const tfaDisable=async()=>{const c=tfa2.code.replace(/[\s-]/g,'');if(!tfa2.pw){tfa2.err='Nhập mật khẩu hiện tại.';return}if(!/^\d{6}$/.test(c)&&!/^[0-9a-fA-F]{8}$/.test(c)){tfa2.err='Nhập mã 6 số từ app, hoặc 1 mã dự phòng.';return}tfa2.busy=true;tfa2.err='';try{await api('POST','/auth/totp/disable',{password:tfa2.pw,code:c});Object.assign(tfa2,{showOff:false,pw:'',code:'',ok:'Đã tắt xác thực 2 bước.'});acct.totpEnabled=false}catch(e){tfa2.err=(e.fields&&e.fields.password)||e.message}finally{tfa2.busy=false}};
+ const tfaDisable=async()=>{const c=tfa2.code.replace(/[\s-]/g,'');if(!acct.noPassword&&!tfa2.pw){tfa2.err='Nhập mật khẩu hiện tại.';return}if(!/^\d{6}$/.test(c)&&!/^[0-9a-fA-F]{8}$/.test(c)){tfa2.err='Nhập mã 6 số từ app, hoặc 1 mã dự phòng.';return}tfa2.busy=true;tfa2.err='';try{await api('POST','/auth/totp/disable',{password:tfa2.pw,code:c});Object.assign(tfa2,{showOff:false,pw:'',code:'',ok:'Đã tắt xác thực 2 bước.'});acct.totpEnabled=false}catch(e){tfa2.err=(e.fields&&e.fields.password)||e.message}finally{tfa2.busy=false}};
  const tfaNewBackup=async()=>{const c=tfa2.code.replace(/[\s-]/g,'');if(!/^\d{6}$/.test(c)){tfa2.err='Nhập mã 6 số đang hiện trong app.';return}tfa2.busy=true;tfa2.err='';try{const d=await api('POST','/auth/totp/backup-codes',{code:c});Object.assign(tfa2,{backup:d.backupCodes||[],bkSaved:false,showBk:false,qr:'',secret:'',showSetup:true})}catch(e){tfa2.err=e.message}finally{tfa2.busy=false}};
  const chPw=async()=>{pw.err='';pw.ok='';if(!pw.cur){pw.err='Nhập mật khẩu hiện tại.';return}if(pw.nw.length<8||!/[A-Za-z]/.test(pw.nw)||!/\d/.test(pw.nw)){pw.err='Mật khẩu mới cần ít nhất 8 ký tự, có cả chữ và số.';return}if(pw.nw!==pw.cf){pw.err='Hai lần nhập mật khẩu mới chưa khớp.';return}pw.busy=true;try{await api('POST','/settings/password',{current:pw.cur,new:pw.nw});pw.ok='Đã đổi mật khẩu. Hãy đăng nhập lại.';pw.cur=pw.nw=pw.cf='';setTimeout(()=>{logout()},1500)}catch(e){pw.err=(e.fields&&(e.fields.current||e.fields.new))||e.message}finally{pw.busy=false}};
  const pvTab=async()=>{tab.value='spv';if(pv.sections||pv.busy)return;pv.busy=true;pv.err='';try{const d=await api('GET','/me/privacy');pv.privacy=d.privacy;pv.sections=d.sections;pv.values=d.values}catch(e){pv.err=e.message}finally{pv.busy=false}};
@@ -184,12 +184,13 @@ const app=createApp({render:appRender,setup(){
   if(!i.enabled||i.isMain)return false;
   sessionStorage.setItem(SSO_TRY,String(Date.now()));location.replace(i.main+'/?sso_req='+encodeURIComponent(location.origin));return true};
  /* Đăng nhập bằng Discord (server/routes/discord.js): nút chỉ hiện khi server đã cấu hình; kết quả quay về trong #discord=... */
+ let dcLinked=false;
  const dcOn=ref(false),dcBusy=ref(false),dcErr=ref('');
  const DC_MSG={off:'Đăng nhập bằng Discord chưa được bật.',login:'Hãy đăng nhập trước rồi mới liên kết Discord.',state:'Phiên đăng nhập Discord đã hết hạn, hãy thử lại.',denied:'Bạn đã hủy đăng nhập bằng Discord.',fail:'Không đăng nhập được bằng Discord, vui lòng thử lại.',ip:'Địa chỉ IP của bạn đã bị chặn.',banned:'Tài khoản của bạn đã bị khóa.',taken:'Tài khoản Discord này đã liên kết với một tài khoản CoolAir khác.',noemail:'Email Discord của bạn chưa được xác thực. Hãy xác thực email trong Discord rồi thử lại, hoặc đăng ký thường.',closed:'Hiện tại website tạm đóng đăng ký.',invite:'Hiện tại chỉ đăng ký được bằng mã mời. Hãy đăng ký bằng mã mời trước rồi liên kết Discord trong Cài đặt.'};
  const discordHash=()=>{const m=location.hash.match(/^#discord=(.+)$/);if(!m)return;history.replaceState(null,'',location.pathname+location.search);const v=m[1];
   const t=v.match(/^totp\.([\w-]+\.[\w-]+\.[\w-]+)$/);if(t){openTfa(t[1]);return}   // tài khoản có 2FA: nhập mã như đăng nhập thường
   if(v==='welcome'){setTimeout(()=>alert('Đã tạo tài khoản CoolAir từ Discord. Hãy vào Cài đặt > Đặt mật khẩu để vẫn đăng nhập được khi không dùng Discord.'),600);return}
-  if(v==='linked'){setTimeout(()=>alert('Đã liên kết Discord.'),400);return}
+  if(v==='linked'){dcLinked=true;setTimeout(()=>alert('Đã liên kết Discord.'),400);return}
   const e=v.match(/^err\.(\w+)$/);if(e){const msg=DC_MSG[e[1]]||DC_MSG.fail;err.value=msg;if(e[1]==='taken'||e[1]==='login')setTimeout(()=>alert(msg),400)}};
  const dcSetPw=()=>{openFp();fp.email=acct.email;fpSend()};   // tài khoản Discord chưa có mật khẩu: dùng luồng mã qua email có sẵn
  const dcUnlink=async()=>{if(dcBusy.value)return;dcBusy.value=true;dcErr.value='';try{await api('POST','/auth/discord/unlink');acct.discord=false}catch(e){dcErr.value=e.message}finally{dcBusy.value=false}};
@@ -199,7 +200,7 @@ const app=createApp({render:appRender,setup(){
   api('GET','/site-config').then(d=>{siteCfg.name=d.site_name;siteCfg.announcement=d.announcement}).catch(()=>{});
   api('GET','/themes').then(d=>{thAdm.disabled=d.disabled||[];thAdm.def=d.def||''}).catch(()=>{});
   if(go=await ssoServe())return;
-  try{const d=await api('GET','/me');enter(d);return}catch(e){if(e.status!==401)return}   // 401 = chưa đăng nhập -> hiện form
+  try{const d=await api('GET','/me');enter(d);if(dcLinked){dcLinked=false;acct.discord=true;view.value='settings'}return}catch(e){if(e.status!==401)return}   // 401 = chưa đăng nhập -> hiện form
   go=await ssoAsk()}finally{if(!go)booting.value=false}};
  const view=ref('home'),tab=ref('nk'),q=ref(''),sf=ref(false),fq=ref(''),draft=ref(''),st=ref(null),cm=ref(null);
  const siteCfg=reactive({name:'CoolAir',announcement:''});

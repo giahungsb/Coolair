@@ -19,6 +19,7 @@ const enabled = () => { const c = cfg(); return !!(c.id && c.secret && /^https?:
 const rnd = (n) => crypto.randomBytes(n).toString('base64url');
 const eq = (a, b) => { a = Buffer.from(String(a)); b = Buffer.from(String(b)); return a.length === b.length && crypto.timingSafeEqual(a, b); };
 const https = (req) => req.secure || req.headers['x-forwarded-proto'] === 'https';
+const ckOpts = (req) => ({ httpOnly: true, sameSite: 'lax', secure: https(req), path: CK_PATH });   // dùng CHUNG cho set và xóa cookie (xóa phải khớp thuộc tính lúc tạo)
 const back = (res, code) => res.redirect('/#discord=err.' + code);   // frontend đọc #discord=err.<mã> rồi hiện thông báo
 
 // Username từ tên Discord: chỉ a-z 0-9 . _ (3–20 ký tự), trùng thì thêm số
@@ -63,7 +64,7 @@ module.exports = (router) => {
     }
     const state = rnd(24), verifier = rnd(48);
     const ck = jwt.sign({ purpose: 'discord', s: state, v: verifier, l: link }, process.env.JWT_SECRET, { algorithm: 'HS256', expiresIn: '10m' });
-    res.cookie(CK, ck, { httpOnly: true, sameSite: 'lax', secure: https(req), path: CK_PATH, maxAge: 10 * 60 * 1000 });   // Lax: vẫn gửi kèm khi Discord chuyển hướng về
+    res.cookie(CK, ck, { ...ckOpts(req), maxAge: 10 * 60 * 1000 });   // Lax: vẫn gửi kèm khi Discord chuyển hướng về
     const c = cfg(), u = new URL('https://discord.com/oauth2/authorize');
     u.search = new URLSearchParams({ client_id: c.id, response_type: 'code', redirect_uri: c.redirect, scope: 'identify email', state,
       code_challenge: crypto.createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' }).toString();
@@ -72,7 +73,7 @@ module.exports = (router) => {
 
   router.get('/auth/discord/callback', limiter, wrap(async (req, res) => {
     const raw = req.cookies && req.cookies[CK];
-    res.clearCookie(CK, { path: CK_PATH });   // state dùng 1 lần
+    res.clearCookie(CK, ckOpts(req));   // state dùng 1 lần
     if (!enabled()) return back(res, 'off');
     let p = null;
     try { p = jwt.verify(String(raw || ''), process.env.JWT_SECRET, { algorithms: ['HS256'] }); } catch {}
@@ -100,6 +101,9 @@ module.exports = (router) => {
 
     /* --- Chế độ liên kết (đang đăng nhập) --- */
     if (p.l) {
+      // Phiên lúc quay về PHẢI vẫn là người đã bấm liên kết (chống: A bấm liên kết -> đăng xuất -> B đăng nhập cùng trình duyệt -> Discord bị gắn nhầm vào A)
+      const cur = await check(req);
+      if (!cur || String(cur.id) !== String(p.l)) return back(res, 'login');
       const me = await User.findById(p.l);
       if (!me || me.banned) return back(res, 'login');
       const other = await User.findOne({ discordId: d.id }).select('_id');
